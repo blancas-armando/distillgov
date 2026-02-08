@@ -367,51 +367,188 @@ Congressional committees.
 
 ---
 
-## Aggregation Tables (Planned)
+## Political Calendar
 
-These will be materialized views or tables computed from base data:
+Legislative activity follows these cycles:
 
-### member_stats
-Pre-computed stats for each member.
+| Cycle | Duration | Significance |
+|-------|----------|--------------|
+| **Congress** | 2 years | Natural unit. Bills die at end. (e.g., 118th: 2023-2025) |
+| **Session** | 1 year | Two per Congress. Budget deadlines. |
+| **Quarter** | 3 months | Useful for trends and reporting |
+| **Fiscal Year** | Oct 1 - Sep 30 | Budget and appropriations rhythm |
+| **Election Proximity** | Variable | Activity spikes pre-election, dies in lame duck |
 
-```sql
--- Planned columns:
-bioguide_id         -- PK, FK → members
-bills_sponsored     -- COUNT of bills where sponsor_id = this member
-bills_enacted       -- COUNT of sponsored bills with status = 'enacted'
-party_loyalty_pct   -- % of votes matching party majority
-bipartisan_score    -- Cosponsoring across party lines
-missed_votes_pct    -- % of votes where position = 'Not Voting'
-trades_count        -- COUNT of disclosures
-total_trade_value   -- SUM of (amount_low + amount_high) / 2
+---
+
+## Analytics Approach
+
+**Principle:** Store facts at natural grain. Compute dimensions. Query for rollups.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     ANALYTICS ARCHITECTURE                       │
+└─────────────────────────────────────────────────────────────────┘
+
+  Base Tables              Fact Tables              Views
+  (source data)            (enriched)               (rollups)
+
+  ┌─────────┐            ┌─────────────┐         ┌─────────────────┐
+  │ members │───────────▶│ member_facts│────────▶│ v_member_scores │
+  └─────────┘            └─────────────┘         └─────────────────┘
+
+  ┌─────────┐            ┌─────────────┐         ┌─────────────────┐
+  │  bills  │───────────▶│ bill_facts  │────────▶│ v_congress_stats│
+  └─────────┘            └─────────────┘         │ v_monthly_activity
+                                                 │ v_policy_breakdown│
+                                                 └─────────────────┘
+
+  ┌─────────┐            ┌─────────────┐         ┌─────────────────┐
+  │  votes  │───────────▶│ vote_facts  │────────▶│ v_vote_patterns │
+  └─────────┘            └─────────────┘         └─────────────────┘
+
+  ┌─────────┐            ┌─────────────┐         ┌─────────────────┐
+  │ trades  │───────────▶│ trade_facts │────────▶│ v_trading_activity│
+  └─────────┘            └─────────────┘         └─────────────────┘
 ```
 
-### bill_stats
-Pre-computed stats for each bill.
+---
+
+## Fact Tables
+
+### bill_facts
+Enriched bills with computed time dimensions and flags.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `bill_id` | TEXT PK | → bills |
+| `congress` | INTEGER | Congress number |
+| `bill_type` | TEXT | hr, s, hjres, etc. |
+| `introduced_date` | DATE | Original introduction date |
+| `latest_action_date` | DATE | Most recent activity |
+| `status` | TEXT | Current status |
+| `sponsor_id` | TEXT FK | → members |
+| `sponsor_party` | TEXT | Sponsor's party (D/R/I) |
+| `policy_area` | TEXT | Policy category |
+| `origin_chamber` | TEXT | house or senate |
+| | | |
+| *Time Dimensions* | | |
+| `introduced_week` | DATE | Week of introduction |
+| `introduced_month` | DATE | Month of introduction |
+| `introduced_quarter` | DATE | Quarter of introduction |
+| `fiscal_year` | INTEGER | Federal fiscal year (Oct-Sep) |
+| `session` | INTEGER | Congressional session (1 or 2) |
+| | | |
+| *Computed Metrics* | | |
+| `days_since_introduced` | INTEGER | Age of bill |
+| `days_active` | INTEGER | Days between intro and last action |
+| | | |
+| *Status Flags* | | |
+| `is_enacted` | BOOLEAN | Became law |
+| `is_stuck` | BOOLEAN | No action in 90+ days |
+| `is_bipartisan` | BOOLEAN | Has cross-party cosponsors |
+
+### member_facts
+Enriched members with computed stats.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `bioguide_id` | TEXT PK | → members |
+| `full_name` | TEXT | Display name |
+| `party` | TEXT | D, R, I |
+| `state` | TEXT | State |
+| `chamber` | TEXT | house or senate |
+| | | |
+| *Sponsorship Stats* | | |
+| `bills_sponsored` | INTEGER | Total bills sponsored |
+| `bills_enacted` | INTEGER | Sponsored bills that became law |
+| `sponsor_success_rate` | DECIMAL | % of sponsored bills enacted |
+| | | |
+| *Voting Stats* | | (requires vote data) |
+| `votes_cast` | INTEGER | Total votes participated |
+| `votes_missed` | INTEGER | Votes missed |
+| `attendance_rate` | DECIMAL | % attendance |
+| `party_loyalty_rate` | DECIMAL | % votes with party majority |
+| | | |
+| *Trading Stats* | | (requires trade data) |
+| `disclosure_count` | INTEGER | PTR filings |
+| `total_trades` | INTEGER | Individual transactions |
+| `estimated_value` | INTEGER | Midpoint of ranges |
+
+### vote_facts
+Enriched votes with computed dimensions. *(When vote data available)*
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `vote_id` | TEXT PK | → votes |
+| `vote_date` | DATE | Date of vote |
+| `vote_week` | DATE | Week |
+| `vote_month` | DATE | Month |
+| `congress` | INTEGER | Congress number |
+| `chamber` | TEXT | house or senate |
+| `result` | TEXT | Passed, Failed |
+| `bill_id` | TEXT FK | Related bill |
+| `margin` | INTEGER | Yea - Nay |
+| `is_close` | BOOLEAN | Margin < 10 |
+| `is_bipartisan` | BOOLEAN | Significant cross-party support |
+| `is_party_line` | BOOLEAN | >90% party alignment |
+
+### trade_facts
+Enriched trades with computed dimensions. *(When trade data available)*
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `trade_id` | TEXT PK | → trades |
+| `bioguide_id` | TEXT FK | → members |
+| `transaction_date` | DATE | Trade date |
+| `transaction_week` | DATE | Week |
+| `transaction_month` | DATE | Month |
+| `transaction_quarter` | DATE | Quarter |
+| `ticker` | TEXT | Stock symbol |
+| `trade_type` | TEXT | Purchase, Sale |
+| `amount_midpoint` | INTEGER | (low + high) / 2 |
+| `member_party` | TEXT | Trader's party |
+| `member_chamber` | TEXT | Trader's chamber |
+
+---
+
+## Views
+
+Views provide rollups at query time. No data duplication.
+
+### v_congress_summary
+High-level stats per Congress.
 
 ```sql
--- Planned columns:
-bill_id             -- PK, FK → bills
-cosponsor_count     -- Total cosponsors
-dem_cosponsors      -- Democratic cosponsors
-rep_cosponsors      -- Republican cosponsors
-bipartisan_ratio    -- Cross-party support score
-days_pending        -- Days since introduced
+SELECT congress, total_bills, enacted, in_committee, enactment_rate
 ```
 
-### congress_overview
-System-wide stats for dashboard.
+### v_monthly_activity
+Bill activity by month.
 
 ```sql
--- Planned columns:
-congress            -- PK (e.g., 118)
-total_bills
-bills_in_committee
-bills_passed_house
-bills_passed_senate
-bills_enacted
-enactment_rate      -- % that become law
-top_policy_areas    -- JSON array
+SELECT month, bills_introduced, bills_enacted, bills_passed_house, bills_passed_senate
+```
+
+### v_policy_breakdown
+Bills by policy area.
+
+```sql
+SELECT policy_area, total, enacted, enactment_rate
+```
+
+### v_member_scorecard
+Member performance metrics.
+
+```sql
+SELECT bioguide_id, name, party, bills_sponsored, bills_enacted, success_rate
+```
+
+### v_chamber_comparison
+House vs Senate activity.
+
+```sql
+SELECT chamber, total_bills, enacted, avg_days_to_passage
 ```
 
 ---
