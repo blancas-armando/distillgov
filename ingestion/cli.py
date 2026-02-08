@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import typer
-from pathlib import Path
 from rich.console import Console
+
+from config import DB_PATH, SCHEMA_PATH, FACTS_PATH
 
 app = typer.Typer(help="Distillgov data ingestion CLI")
 console = Console()
-
-DB_PATH = Path(__file__).parent.parent / "db" / "distillgov.duckdb"
-SCHEMA_PATH = Path(__file__).parent.parent / "db" / "schema.sql"
-FACTS_PATH = Path(__file__).parent.parent / "db" / "facts.sql"
 
 
 @app.command()

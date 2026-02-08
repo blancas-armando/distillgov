@@ -1,0 +1,7 @@
+distillgov:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('DISTILLGOV_DB_PATH', '../db/distillgov.duckdb') }}"
+      threads: 1

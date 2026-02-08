@@ -1,0 +1,68 @@
+version: 2
+
+models:
+  - name: fct_bills
+    description: >
+      Enriched bills with denormalized sponsor info, time dimensions,
+      computed metrics, and status flags. Replaces bill_facts from facts.sql.
+    columns:
+      - name: bill_id
+        tests:
+          - unique
+          - not_null
+      - name: congress
+        tests:
+          - not_null
+      - name: is_enacted
+        description: True if bill status is 'enacted'
+      - name: is_stale
+        description: True if no action in 90+ days
+      - name: fiscal_year
+        description: Federal fiscal year (Oct 1 - Sep 30)
+
+  - name: fct_members
+    description: >
+      Enriched members with sponsorship, voting, and trading statistics.
+      Replaces member_facts from facts.sql, now with real vote and trade data.
+    columns:
+      - name: bioguide_id
+        tests:
+          - unique
+          - not_null
+      - name: bills_sponsored
+        description: Total bills sponsored by this member
+      - name: sponsor_success_rate
+        description: Percentage of sponsored bills that were enacted
+      - name: votes_cast
+        description: Total roll call votes this member participated in
+      - name: attendance_rate
+        description: Percentage of votes where the member was present
+      - name: disclosure_count
+        description: Number of stock trade disclosure filings
+
+  - name: agg_congress_summary
+    description: Congress-level bill aggregations
+
+  - name: agg_monthly_activity
+    description: Monthly bill introduction and enactment counts
+
+  - name: agg_quarterly_activity
+    description: Quarterly activity with enactment rates
+
+  - name: agg_policy_breakdown
+    description: Bills grouped by policy area
+
+  - name: agg_chamber_comparison
+    description: House vs Senate bill statistics
+
+  - name: agg_party_breakdown
+    description: Democratic vs Republican sponsorship stats
+
+  - name: agg_member_scorecard
+    description: Current member rankings by legislative activity
+
+  - name: agg_bill_type_breakdown
+    description: Bill counts by type (HR, S, HJRES, etc.)
+
+  - name: agg_fiscal_year_summary
+    description: Fiscal year trends for bill activity

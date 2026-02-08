@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import duckdb
-from pathlib import Path
 from rich.console import Console
 from rich.progress import track
 
+from config import DB_PATH
 from ingestion.client import CongressClient
 
 console = Console()
-DB_PATH = Path(__file__).parent.parent / "db" / "distillgov.duckdb"
 
 
 def sync_members(congress: int = 118):

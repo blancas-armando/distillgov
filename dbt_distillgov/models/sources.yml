@@ -1,0 +1,20 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: main
+    tables:
+      - name: members
+        description: Members of Congress (House + Senate)
+      - name: bills
+        description: Bills and resolutions
+      - name: votes
+        description: Roll call votes
+      - name: member_votes
+        description: Individual member voting positions
+      - name: trades
+        description: Stock trading disclosures
+      - name: bill_cosponsors
+        description: Bill cosponsor relationships
+      - name: bill_actions
+        description: Bill action timeline events

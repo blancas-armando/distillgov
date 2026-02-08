@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import duckdb
-from pathlib import Path
 from contextlib import contextmanager
 from typing import Generator
 
-DB_PATH = Path(__file__).parent.parent / "db" / "distillgov.duckdb"
+from config import DB_PATH
 
 
 def get_connection() -> duckdb.DuckDBPyConnection:

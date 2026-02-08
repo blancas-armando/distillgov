@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import duckdb
 import hashlib
-from pathlib import Path
 from rich.console import Console
 from rich.progress import track
 
@@ -12,8 +11,9 @@ from capitolgains import Representative, Senator
 from capitolgains.utils.representative_scraper import HouseDisclosureScraper
 from capitolgains.utils.senator_scraper import SenateDisclosureScraper
 
+from config import DB_PATH
+
 console = Console()
-DB_PATH = Path(__file__).parent.parent / "db" / "distillgov.duckdb"
 
 # State name to code mapping
 STATE_CODES = {

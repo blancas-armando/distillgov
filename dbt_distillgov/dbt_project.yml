@@ -1,0 +1,19 @@
+name: distillgov
+version: "0.1.0"
+config-version: 2
+
+profile: distillgov
+
+model-paths: ["models"]
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  distillgov:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: view
+      fct_bills:
+        +materialized: table
+      fct_members:
+        +materialized: table

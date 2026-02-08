@@ -50,6 +50,18 @@ node_modules/
 web/dist/
 web/.vite/
 
+# Airflow
+airflow.cfg
+airflow.db
+airflow-webserver.pid
+standalone_admin_password.txt
+logs/
+
+# dbt
+dbt_distillgov/target/
+dbt_distillgov/dbt_packages/
+dbt_distillgov/logs/
+
 # Misc
 *.log
 .cache/

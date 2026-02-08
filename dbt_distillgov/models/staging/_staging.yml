@@ -1,0 +1,75 @@
+version: 2
+
+models:
+  - name: stg_members
+    description: Staging layer for Congress members
+    columns:
+      - name: bioguide_id
+        description: Unique identifier from bioguide.congress.gov
+        tests:
+          - unique
+          - not_null
+      - name: chamber
+        tests:
+          - accepted_values:
+              values: ["house", "senate"]
+
+  - name: stg_bills
+    description: Staging layer for bills and resolutions
+    columns:
+      - name: bill_id
+        description: "Composite key: {congress}-{type}-{number}"
+        tests:
+          - unique
+          - not_null
+      - name: congress
+        tests:
+          - not_null
+      - name: bill_type
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["hr", "s", "hjres", "sjres", "hconres", "sconres", "hres", "sres"]
+
+  - name: stg_votes
+    description: Staging layer for roll call votes
+    columns:
+      - name: vote_id
+        tests:
+          - unique
+          - not_null
+
+  - name: stg_member_votes
+    description: Staging layer for individual member voting positions
+    columns:
+      - name: position
+        tests:
+          - not_null
+
+  - name: stg_trades
+    description: Staging layer for stock trading disclosures
+    columns:
+      - name: trade_id
+        tests:
+          - unique
+          - not_null
+      - name: bioguide_id
+        tests:
+          - not_null
+
+  - name: stg_bill_cosponsors
+    description: Staging layer for bill cosponsor relationships
+    columns:
+      - name: bill_id
+        tests:
+          - not_null
+      - name: bioguide_id
+        tests:
+          - not_null
+
+  - name: stg_bill_actions
+    description: Staging layer for bill action timeline events
+    columns:
+      - name: bill_id
+        tests:
+          - not_null
