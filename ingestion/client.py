@@ -1,5 +1,7 @@
 """Congress.gov API client."""
 
+from __future__ import annotations
+
 import os
 import httpx
 from typing import Any
@@ -34,22 +36,15 @@ class CongressClient:
 
     def get_members(
         self,
-        congress: int | None = None,
-        chamber: str | None = None,
+        current_member: bool = True,
         limit: int = 250,
         offset: int = 0,
     ) -> dict[str, Any]:
         """Get members of Congress."""
         params: dict[str, Any] = {"limit": limit, "offset": offset}
-
-        if congress and chamber:
-            endpoint = f"member/congress/{congress}/{chamber}"
-        elif congress:
-            endpoint = f"member/congress/{congress}"
-        else:
-            endpoint = "member"
-
-        return self._get(endpoint, params)
+        if current_member:
+            params["currentMember"] = "true"
+        return self._get("member", params)
 
     def get_member(self, bioguide_id: str) -> dict[str, Any]:
         """Get a single member by bioguide ID."""

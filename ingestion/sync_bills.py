@@ -1,5 +1,7 @@
 """Sync bills from Congress.gov API to DuckDB."""
 
+from __future__ import annotations
+
 import duckdb
 from pathlib import Path
 from rich.console import Console

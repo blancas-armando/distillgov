@@ -1,5 +1,7 @@
 """Sync members from Congress.gov API to DuckDB."""
 
+from __future__ import annotations
+
 import duckdb
 from pathlib import Path
 from rich.console import Console
@@ -12,59 +14,63 @@ DB_PATH = Path(__file__).parent.parent / "db" / "distillgov.duckdb"
 
 
 def sync_members(congress: int = 118):
-    """Sync all members from a Congress into DuckDB."""
-    console.print(f"Fetching members from Congress {congress}...")
+    """Sync all current members into DuckDB."""
+    console.print("Fetching current members of Congress...")
 
     with CongressClient() as client:
         members = []
+        offset = 0
 
-        # Fetch both chambers
-        for chamber in ["house", "senate"]:
-            console.print(f"  Fetching {chamber}...")
-            offset = 0
+        while True:
+            response = client.get_members(current_member=True, offset=offset)
+            batch = response.get("members", [])
 
-            while True:
-                response = client.get_members(congress=congress, chamber=chamber, offset=offset)
-                batch = response.get("members", [])
+            if not batch:
+                break
 
-                if not batch:
-                    break
+            members.extend(batch)
+            offset += len(batch)
+            console.print(f"  Fetched {len(members)} members...")
 
-                members.extend(batch)
-                offset += len(batch)
+            if offset >= response.get("pagination", {}).get("count", 0):
+                break
 
-                if offset >= response.get("pagination", {}).get("count", 0):
-                    break
-
-        console.print(f"Fetched {len(members)} members")
+        console.print(f"Total: {len(members)} current members")
 
     # Transform and load into DuckDB
     conn = duckdb.connect(str(DB_PATH))
 
     inserted = 0
     for member in track(members, description="Loading members..."):
-        # Extract fields from API response
         bioguide_id = member.get("bioguideId")
         if not bioguide_id:
             continue
 
-        # Parse name
+        # Parse name (format: "Last, First Middle")
         name = member.get("name", "")
         parts = name.split(", ") if ", " in name else [name, ""]
         last_name = parts[0] if parts else ""
         first_name = parts[1].split()[0] if len(parts) > 1 and parts[1] else ""
 
-        # Determine chamber from terms or district
+        # Determine chamber from terms
         terms = member.get("terms", {}).get("item", [])
         latest_term = terms[-1] if terms else {}
-        chamber = latest_term.get("chamber", "").lower()
-        if not chamber:
+        chamber_raw = latest_term.get("chamber", "")
+
+        if "house" in chamber_raw.lower():
+            chamber = "house"
+        elif "senate" in chamber_raw.lower():
+            chamber = "senate"
+        else:
+            # Fallback: if has district, it's house
             chamber = "house" if member.get("district") else "senate"
 
-        # Get district (House only)
+        # District (House only, 0 = at-large)
         district = member.get("district")
-        if district == 0:  # At-large
-            district = 0
+
+        # Party first letter
+        party_name = member.get("partyName", "")
+        party = party_name[0] if party_name else None
 
         conn.execute(
             """
@@ -78,12 +84,12 @@ def sync_members(congress: int = 118):
                 bioguide_id,
                 first_name,
                 last_name,
-                member.get("name"),
-                member.get("partyName", "")[:1],  # First letter: D, R, I
+                name,
+                party,
                 member.get("state"),
                 district,
                 chamber,
-                True,  # Current members
+                True,
                 member.get("depiction", {}).get("imageUrl"),
                 member.get("officialWebsiteUrl"),
             ],

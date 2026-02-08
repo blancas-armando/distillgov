@@ -1,5 +1,7 @@
 """DuckDB database connection for the API."""
 
+from __future__ import annotations
+
 import duckdb
 from pathlib import Path
 from contextlib import contextmanager

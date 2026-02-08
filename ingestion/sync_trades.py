@@ -1,9 +1,10 @@
 """Sync stock trades from congressional disclosures using CapitolGains."""
 
+from __future__ import annotations
+
 import duckdb
 import hashlib
 from pathlib import Path
-from datetime import datetime
 from rich.console import Console
 from rich.progress import track
 
@@ -14,42 +15,45 @@ from capitolgains.utils.senator_scraper import SenateDisclosureScraper
 console = Console()
 DB_PATH = Path(__file__).parent.parent / "db" / "distillgov.duckdb"
 
-
-def parse_amount_range(amount_str: str) -> tuple[int | None, int | None]:
-    """Parse amount range string like '$1,001 - $15,000' into (low, high)."""
-    if not amount_str or amount_str == "--":
-        return None, None
-
-    # Remove $ and commas
-    clean = amount_str.replace("$", "").replace(",", "")
-
-    if " - " in clean:
-        parts = clean.split(" - ")
-        try:
-            low = int(parts[0].strip())
-            high = int(parts[1].strip())
-            return low, high
-        except ValueError:
-            return None, None
-    else:
-        try:
-            val = int(clean.strip())
-            return val, val
-        except ValueError:
-            return None, None
+# State name to code mapping
+STATE_CODES = {
+    "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR",
+    "California": "CA", "Colorado": "CO", "Connecticut": "CT", "Delaware": "DE",
+    "Florida": "FL", "Georgia": "GA", "Hawaii": "HI", "Idaho": "ID",
+    "Illinois": "IL", "Indiana": "IN", "Iowa": "IA", "Kansas": "KS",
+    "Kentucky": "KY", "Louisiana": "LA", "Maine": "ME", "Maryland": "MD",
+    "Massachusetts": "MA", "Michigan": "MI", "Minnesota": "MN", "Mississippi": "MS",
+    "Missouri": "MO", "Montana": "MT", "Nebraska": "NE", "Nevada": "NV",
+    "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
+    "North Carolina": "NC", "North Dakota": "ND", "Ohio": "OH", "Oklahoma": "OK",
+    "Oregon": "OR", "Pennsylvania": "PA", "Rhode Island": "RI", "South Carolina": "SC",
+    "South Dakota": "SD", "Tennessee": "TN", "Texas": "TX", "Utah": "UT",
+    "Vermont": "VT", "Virginia": "VA", "Washington": "WA", "West Virginia": "WV",
+    "Wisconsin": "WI", "Wyoming": "WY", "District of Columbia": "DC",
+    "Puerto Rico": "PR", "Guam": "GU", "American Samoa": "AS",
+    "U.S. Virgin Islands": "VI", "Northern Mariana Islands": "MP",
+}
 
 
-def generate_trade_id(bioguide_id: str, transaction_date: str, ticker: str, trade_type: str) -> str:
-    """Generate a unique trade ID."""
-    raw = f"{bioguide_id}-{transaction_date}-{ticker}-{trade_type}"
+def get_state_code(state: str) -> str | None:
+    """Convert state name to state code."""
+    if not state:
+        return None
+    if len(state) == 2 and state.upper() in STATE_CODES.values():
+        return state.upper()
+    return STATE_CODES.get(state)
+
+
+def generate_trade_id(bioguide_id: str, pdf_url: str) -> str:
+    """Generate a unique trade ID from bioguide and PDF URL."""
+    raw = f"{bioguide_id}-{pdf_url}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
 def sync_house_trades(year: int, conn: duckdb.DuckDBPyConnection) -> int:
-    """Sync House member trades."""
-    console.print(f"[blue]Syncing House trades for {year}...[/blue]")
+    """Sync House member trades (PTR filings)."""
+    console.print(f"[blue]Syncing House disclosures for {year}...[/blue]")
 
-    # Get current House members from our database
     members = conn.execute(
         "SELECT bioguide_id, first_name, last_name, state, district FROM members WHERE chamber = 'house' AND is_current = TRUE"
     ).fetchall()
@@ -59,74 +63,63 @@ def sync_house_trades(year: int, conn: duckdb.DuckDBPyConnection) -> int:
         return 0
 
     inserted = 0
+    checked = 0
 
     with HouseDisclosureScraper() as scraper:
         for bioguide_id, first_name, last_name, state, district in track(
             members, description="Fetching House disclosures..."
         ):
+            checked += 1
             try:
-                rep = Representative(last_name, state=state, district=str(district) if district else None)
+                state_code = get_state_code(state)
+                if not state_code:
+                    continue
+
+                rep = Representative(last_name, state=state_code, district=str(district) if district else None)
                 disclosures = rep.get_disclosures(scraper, year=str(year))
 
-                trades = disclosures.get("trades", [])
-                for trade in trades:
-                    trade_id = generate_trade_id(
-                        bioguide_id,
-                        trade.get("transaction_date", ""),
-                        trade.get("ticker", ""),
-                        trade.get("type", ""),
-                    )
+                # CapitolGains returns PTR filings, not individual trades
+                filings = disclosures.get("trades", [])
+                for filing in filings:
+                    pdf_url = filing.get("pdf_url", "")
+                    if not pdf_url:
+                        continue
 
-                    amount_low, amount_high = parse_amount_range(trade.get("amount", ""))
-
-                    # Parse dates
-                    trans_date = None
-                    if trade.get("transaction_date"):
-                        try:
-                            trans_date = datetime.strptime(
-                                trade["transaction_date"], "%m/%d/%Y"
-                            ).date()
-                        except ValueError:
-                            pass
+                    trade_id = generate_trade_id(bioguide_id, pdf_url)
+                    filing_type = filing.get("filing_type", "ptr")
 
                     conn.execute(
                         """
                         INSERT OR REPLACE INTO trades (
-                            trade_id, bioguide_id, transaction_date, ticker,
-                            asset_name, asset_type, trade_type,
-                            amount_low, amount_high, owner, ptr_link,
-                            comment, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                            trade_id, bioguide_id, asset_name, trade_type,
+                            ptr_link, comment, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                         """,
                         [
                             trade_id,
                             bioguide_id,
-                            trans_date,
-                            trade.get("ticker"),
-                            trade.get("asset_description"),
-                            trade.get("asset_type"),
-                            trade.get("type"),
-                            amount_low,
-                            amount_high,
-                            trade.get("owner"),
-                            trade.get("ptr_link"),
-                            trade.get("comment"),
+                            f"PTR Filing - {filing_type}",
+                            "disclosure",
+                            pdf_url,
+                            f"Year: {filing.get('year')}",
                         ],
                     )
                     inserted += 1
 
             except Exception as e:
-                console.print(f"[dim]  Skipped {first_name} {last_name}: {e}[/dim]")
+                # Silently skip members without disclosures
+                if "No disclosure" not in str(e) and "not found" not in str(e).lower():
+                    console.print(f"[dim]  {first_name} {last_name}: {e}[/dim]")
                 continue
 
+    console.print(f"  Checked {checked} House members")
     return inserted
 
 
 def sync_senate_trades(year: int, conn: duckdb.DuckDBPyConnection) -> int:
-    """Sync Senate member trades."""
-    console.print(f"[blue]Syncing Senate trades for {year}...[/blue]")
+    """Sync Senate member trades (PTR filings)."""
+    console.print(f"[blue]Syncing Senate disclosures for {year}...[/blue]")
 
-    # Get current Senators from our database
     members = conn.execute(
         "SELECT bioguide_id, first_name, last_name, state FROM members WHERE chamber = 'senate' AND is_current = TRUE"
     ).fetchall()
@@ -136,71 +129,59 @@ def sync_senate_trades(year: int, conn: duckdb.DuckDBPyConnection) -> int:
         return 0
 
     inserted = 0
+    checked = 0
 
     with SenateDisclosureScraper() as scraper:
         for bioguide_id, first_name, last_name, state in track(
             members, description="Fetching Senate disclosures..."
         ):
+            checked += 1
             try:
-                senator = Senator(last_name, first_name=first_name, state=state)
+                state_code = get_state_code(state)
+                if not state_code:
+                    continue
+
+                senator = Senator(last_name, first_name=first_name, state=state_code)
                 disclosures = senator.get_disclosures(scraper, year=str(year))
 
-                trades = disclosures.get("trades", [])
-                for trade in trades:
-                    trade_id = generate_trade_id(
-                        bioguide_id,
-                        trade.get("transaction_date", ""),
-                        trade.get("ticker", ""),
-                        trade.get("type", ""),
-                    )
+                filings = disclosures.get("trades", [])
+                for filing in filings:
+                    pdf_url = filing.get("pdf_url", "")
+                    if not pdf_url:
+                        continue
 
-                    amount_low, amount_high = parse_amount_range(trade.get("amount", ""))
-
-                    # Parse dates
-                    trans_date = None
-                    if trade.get("transaction_date"):
-                        try:
-                            trans_date = datetime.strptime(
-                                trade["transaction_date"], "%m/%d/%Y"
-                            ).date()
-                        except ValueError:
-                            pass
+                    trade_id = generate_trade_id(bioguide_id, pdf_url)
+                    filing_type = filing.get("filing_type", "ptr")
 
                     conn.execute(
                         """
                         INSERT OR REPLACE INTO trades (
-                            trade_id, bioguide_id, transaction_date, ticker,
-                            asset_name, asset_type, trade_type,
-                            amount_low, amount_high, owner, ptr_link,
-                            comment, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                            trade_id, bioguide_id, asset_name, trade_type,
+                            ptr_link, comment, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                         """,
                         [
                             trade_id,
                             bioguide_id,
-                            trans_date,
-                            trade.get("ticker"),
-                            trade.get("asset_description"),
-                            trade.get("asset_type"),
-                            trade.get("type"),
-                            amount_low,
-                            amount_high,
-                            trade.get("owner"),
-                            trade.get("ptr_link"),
-                            trade.get("comment"),
+                            f"PTR Filing - {filing_type}",
+                            "disclosure",
+                            pdf_url,
+                            f"Year: {filing.get('year')}",
                         ],
                     )
                     inserted += 1
 
             except Exception as e:
-                console.print(f"[dim]  Skipped {first_name} {last_name}: {e}[/dim]")
+                if "No disclosure" not in str(e) and "not found" not in str(e).lower():
+                    console.print(f"[dim]  {first_name} {last_name}: {e}[/dim]")
                 continue
 
+    console.print(f"  Checked {checked} Senators")
     return inserted
 
 
 def sync_trades(year: int = 2024):
-    """Sync all congressional stock trades for a given year."""
+    """Sync all congressional stock trade disclosures for a given year."""
     conn = duckdb.connect(str(DB_PATH))
 
     house_count = sync_house_trades(year, conn)
@@ -209,7 +190,7 @@ def sync_trades(year: int = 2024):
     conn.close()
 
     total = house_count + senate_count
-    console.print(f"[green]Inserted {total} trades ({house_count} House, {senate_count} Senate)[/green]")
+    console.print(f"[green]Inserted {total} disclosure filings ({house_count} House, {senate_count} Senate)[/green]")
 
 
 if __name__ == "__main__":
