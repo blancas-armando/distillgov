@@ -254,7 +254,7 @@ Roll call votes in House or Senate.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `vote_id` | TEXT PK | Format: `{congress}-{chamber}-{roll_call}` |
+| `vote_id` | TEXT PK | Format: `{congress}-{chamber}-{session}-{roll_call}` |
 | `congress` | INTEGER | Congress number |
 | `chamber` | TEXT | house or senate |
 | `session` | INTEGER | Session (1 or 2) |
@@ -576,13 +576,48 @@ idx_trades_member, idx_trades_ticker, idx_trades_date
 
 ## Data Sources
 
-| Table | Source | Sync Method |
-|-------|--------|-------------|
-| members | Congress.gov API | `sync_members.py` |
-| bills | Congress.gov API | `sync_bills.py` |
-| votes | Congress.gov API | `sync_votes.py` |
-| member_votes | Congress.gov API | `sync_votes.py` |
-| trades | House/Senate disclosures via CapitolGains | `sync_trades.py` |
-| bill_cosponsors | Congress.gov API | `sync_bills.py` (planned) |
-| bill_actions | Congress.gov API | `sync_bills.py` (planned) |
-| committees | Congress.gov API | (not implemented) |
+| Table | Source | Sync Command | Notes |
+|-------|--------|--------------|-------|
+| members | Congress.gov API | `sync members` | Fast (~1 min) |
+| bills | Congress.gov API | `sync bills` | Fast (~2 min) |
+| bill_cosponsors | Congress.gov API | `sync cosponsors` | Slow (~30 min, 1 call/bill) |
+| bill_actions | Congress.gov API | `sync actions` | Slow (~30 min, 1 call/bill) |
+| votes | Congress.gov API | `sync votes` | Medium (~5 min, House only) |
+| member_votes | Congress.gov API | `sync member-votes` | Medium (~10 min, 1 call/vote) |
+| trades | CapitolGains | `sync trades` | Slow (~30 min, scrapes PDFs) |
+| committees | Congress.gov API | - | Not implemented |
+
+---
+
+## Data Pipeline
+
+### Sync Order
+
+Dependencies require this order:
+
+```
+1. members          (no dependencies)
+2. bills            (no dependencies)
+3. cosponsors       (requires: bills, members)
+4. actions          (requires: bills)
+5. votes            (no dependencies)
+6. member-votes     (requires: votes, members)
+7. rebuild-facts    (requires: all above)
+```
+
+### Recommended Schedule
+
+| Sync | Frequency | Reason |
+|------|-----------|--------|
+| members | Daily | Members rarely change |
+| bills | Every 6 hours | New bills introduced frequently |
+| cosponsors | Daily | Cosponsors added over time |
+| actions | Daily | Actions happen throughout day |
+| votes | Every 6 hours | Votes happen during session |
+| member-votes | Daily | Tied to votes |
+| rebuild-facts | After each sync batch | Refresh analytics |
+
+### API Limits
+
+- Congress.gov: 5,000 requests/hour (plenty for our needs)
+- CapitolGains: No explicit limit, but slow (uses Playwright)
