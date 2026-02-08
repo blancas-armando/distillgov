@@ -16,8 +16,14 @@ DB_PATH = Path(__file__).parent.parent / "db" / "distillgov.duckdb"
 BILL_TYPES = ["hr", "s", "hjres", "sjres", "hconres", "sconres", "hres", "sres"]
 
 
-def sync_bills(congress: int = 118, bill_types: list[str] | None = None):
-    """Sync bills from a Congress into DuckDB."""
+def sync_bills(congress: int = 118, bill_types: list[str] | None = None, with_details: bool = False):
+    """Sync bills from a Congress into DuckDB.
+
+    Args:
+        congress: Congress number (e.g., 118)
+        bill_types: List of bill types to sync (default: all)
+        with_details: If True, fetch cosponsors and actions for each bill (slower)
+    """
     bill_types = bill_types or BILL_TYPES
     console.print(f"Fetching bills from Congress {congress}...")
 
@@ -69,14 +75,17 @@ def sync_bills(congress: int = 118, bill_types: list[str] | None = None):
         # Determine status from latest action
         status = determine_status(latest_action_text)
 
+        # Policy area from list endpoint
+        policy_area = bill.get("policyArea", {}).get("name") if bill.get("policyArea") else None
+
         conn.execute(
             """
             INSERT OR REPLACE INTO bills (
                 bill_id, congress, bill_type, bill_number,
                 title, introduced_date, origin_chamber,
                 latest_action, latest_action_date, status,
-                updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                policy_area, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
             [
                 bill_id,
@@ -89,12 +98,245 @@ def sync_bills(congress: int = 118, bill_types: list[str] | None = None):
                 latest_action_text,
                 latest_action_date,
                 status,
+                policy_area,
             ],
         )
         inserted += 1
 
     conn.close()
     console.print(f"[green]Inserted {inserted} bills[/green]")
+
+    if with_details:
+        sync_bill_details(congress, bills)
+
+
+def sync_bill_details(congress: int, bills: list[dict]):
+    """Sync cosponsors and actions for bills."""
+    console.print(f"\n[blue]Fetching cosponsors and actions for {len(bills)} bills...[/blue]")
+
+    conn = duckdb.connect(str(DB_PATH))
+
+    cosponsors_inserted = 0
+    actions_inserted = 0
+    sponsors_updated = 0
+
+    with CongressClient() as client:
+        for bill in track(bills, description="Fetching bill details..."):
+            bill_type = bill.get("type", "").lower()
+            bill_number = bill.get("number")
+
+            if not bill_number:
+                continue
+
+            bill_id = f"{congress}-{bill_type}-{bill_number}"
+
+            try:
+                # Fetch detailed bill info (for sponsor)
+                detail = client.get_bill(congress, bill_type, bill_number)
+                bill_data = detail.get("bill", {})
+
+                # Update sponsor if available
+                sponsors = bill_data.get("sponsors", [])
+                if sponsors:
+                    sponsor = sponsors[0]
+                    sponsor_id = sponsor.get("bioguideId")
+                    if sponsor_id:
+                        conn.execute(
+                            "UPDATE bills SET sponsor_id = ? WHERE bill_id = ?",
+                            [sponsor_id, bill_id]
+                        )
+                        sponsors_updated += 1
+
+                # Fetch and insert cosponsors
+                cosponsors_response = client.get_bill_cosponsors(congress, bill_type, bill_number)
+                cosponsors = cosponsors_response.get("cosponsors", [])
+
+                for cosponsor in cosponsors:
+                    bioguide_id = cosponsor.get("bioguideId")
+                    if not bioguide_id:
+                        continue
+
+                    cosponsor_date = cosponsor.get("sponsorshipDate")
+                    is_original = cosponsor.get("isOriginalCosponsor", False)
+
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO bill_cosponsors (
+                            bill_id, bioguide_id, cosponsor_date, is_original
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        [bill_id, bioguide_id, cosponsor_date, is_original]
+                    )
+                    cosponsors_inserted += 1
+
+                # Fetch and insert actions
+                actions_response = client.get_bill_actions(congress, bill_type, bill_number)
+                actions = actions_response.get("actions", [])
+
+                for idx, action in enumerate(actions):
+                    action_date = action.get("actionDate")
+                    action_text = action.get("text")
+                    action_type = action.get("type")
+                    action_chamber = action.get("actionCode", "")[:1]  # H or S
+
+                    if action_chamber == "H":
+                        chamber = "house"
+                    elif action_chamber == "S":
+                        chamber = "senate"
+                    else:
+                        chamber = None
+
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO bill_actions (
+                            bill_id, action_date, action_text, action_type, chamber, sequence
+                        ) VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        [bill_id, action_date, action_text, action_type, chamber, idx]
+                    )
+                    actions_inserted += 1
+
+            except Exception as e:
+                console.print(f"[dim]  {bill_id}: {e}[/dim]")
+                continue
+
+    conn.close()
+    console.print(f"[green]Updated {sponsors_updated} sponsors[/green]")
+    console.print(f"[green]Inserted {cosponsors_inserted} cosponsors[/green]")
+    console.print(f"[green]Inserted {actions_inserted} actions[/green]")
+
+
+def sync_cosponsors(congress: int = 118):
+    """Sync cosponsors for all bills in the database."""
+    console.print(f"Syncing cosponsors for Congress {congress}...")
+
+    conn = duckdb.connect(str(DB_PATH))
+    bills = conn.execute(
+        "SELECT bill_id, bill_type, bill_number FROM bills WHERE congress = ?",
+        [congress]
+    ).fetchall()
+    conn.close()
+
+    if not bills:
+        console.print("[yellow]No bills found. Run 'sync bills' first.[/yellow]")
+        return
+
+    console.print(f"Found {len(bills)} bills")
+
+    conn = duckdb.connect(str(DB_PATH))
+    inserted = 0
+    sponsors_updated = 0
+
+    with CongressClient() as client:
+        for bill_id, bill_type, bill_number in track(bills, description="Fetching cosponsors..."):
+            try:
+                # Get detailed bill for sponsor
+                detail = client.get_bill(congress, bill_type, bill_number)
+                bill_data = detail.get("bill", {})
+
+                sponsors = bill_data.get("sponsors", [])
+                if sponsors:
+                    sponsor = sponsors[0]
+                    sponsor_id = sponsor.get("bioguideId")
+                    if sponsor_id:
+                        conn.execute(
+                            "UPDATE bills SET sponsor_id = ? WHERE bill_id = ?",
+                            [sponsor_id, bill_id]
+                        )
+                        sponsors_updated += 1
+
+                # Get cosponsors
+                response = client.get_bill_cosponsors(congress, bill_type, bill_number)
+                cosponsors = response.get("cosponsors", [])
+
+                for cosponsor in cosponsors:
+                    bioguide_id = cosponsor.get("bioguideId")
+                    if not bioguide_id:
+                        continue
+
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO bill_cosponsors (
+                            bill_id, bioguide_id, cosponsor_date, is_original
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        [
+                            bill_id,
+                            bioguide_id,
+                            cosponsor.get("sponsorshipDate"),
+                            cosponsor.get("isOriginalCosponsor", False),
+                        ]
+                    )
+                    inserted += 1
+
+            except Exception as e:
+                console.print(f"[dim]  {bill_id}: {e}[/dim]")
+                continue
+
+    conn.close()
+    console.print(f"[green]Updated {sponsors_updated} bill sponsors[/green]")
+    console.print(f"[green]Inserted {inserted} cosponsors[/green]")
+
+
+def sync_actions(congress: int = 118):
+    """Sync actions for all bills in the database."""
+    console.print(f"Syncing bill actions for Congress {congress}...")
+
+    conn = duckdb.connect(str(DB_PATH))
+    bills = conn.execute(
+        "SELECT bill_id, bill_type, bill_number FROM bills WHERE congress = ?",
+        [congress]
+    ).fetchall()
+    conn.close()
+
+    if not bills:
+        console.print("[yellow]No bills found. Run 'sync bills' first.[/yellow]")
+        return
+
+    console.print(f"Found {len(bills)} bills")
+
+    conn = duckdb.connect(str(DB_PATH))
+    inserted = 0
+
+    with CongressClient() as client:
+        for bill_id, bill_type, bill_number in track(bills, description="Fetching actions..."):
+            try:
+                response = client.get_bill_actions(congress, bill_type, bill_number)
+                actions = response.get("actions", [])
+
+                for idx, action in enumerate(actions):
+                    action_code = action.get("actionCode", "")
+
+                    if action_code.startswith("H"):
+                        chamber = "house"
+                    elif action_code.startswith("S"):
+                        chamber = "senate"
+                    else:
+                        chamber = None
+
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO bill_actions (
+                            bill_id, action_date, action_text, action_type, chamber, sequence
+                        ) VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        [
+                            bill_id,
+                            action.get("actionDate"),
+                            action.get("text"),
+                            action.get("type"),
+                            chamber,
+                            idx,
+                        ]
+                    )
+                    inserted += 1
+
+            except Exception as e:
+                console.print(f"[dim]  {bill_id}: {e}[/dim]")
+                continue
+
+    conn.close()
+    console.print(f"[green]Inserted {inserted} actions[/green]")
 
 
 def determine_status(action_text: str | None) -> str:

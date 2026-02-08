@@ -87,14 +87,28 @@ class CongressClient:
         self,
         congress: int,
         chamber: str,
+        session: int | None = None,
         limit: int = 250,
         offset: int = 0,
     ) -> dict[str, Any]:
         """Get roll call votes."""
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         # Note: House votes endpoint is newer, Senate may differ
-        endpoint = f"house-vote/{congress}"
+        if session:
+            endpoint = f"house-vote/{congress}/{session}"
+        else:
+            endpoint = f"house-vote/{congress}"
         return self._get(endpoint, params)
+
+    def get_vote_members(
+        self,
+        congress: int,
+        session: int,
+        roll_call: int,
+    ) -> dict[str, Any]:
+        """Get individual member voting positions for a roll call vote."""
+        endpoint = f"house-vote/{congress}/{session}/{roll_call}/members"
+        return self._get(endpoint)
 
     def close(self):
         """Close the HTTP client."""
