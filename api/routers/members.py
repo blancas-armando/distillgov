@@ -67,7 +67,7 @@ class MemberDetail(Member):
     bills_enacted: int = 0
     bills_passed: int = 0
     sponsor_success_rate: float = 0
-    votes_cast: int = 0
+    total_roll_calls: int = 0
     votes_missed: int = 0
     attendance_rate: float | None = None
     party_loyalty_pct: float | None = None
@@ -493,7 +493,7 @@ def _build_member_detail(conn, bioguide_id: str) -> MemberDetail | None:
                    f.party, f.state, f.district, f.chamber, f.is_current,
                    f.image_url, f.official_url, f.leadership_role, f.start_date,
                    f.bills_sponsored, f.bills_enacted, f.bills_passed, f.sponsor_success_rate,
-                   f.votes_cast, f.votes_missed, f.attendance_rate, f.party_loyalty_pct,
+                   f.total_roll_calls, f.votes_missed, f.attendance_rate, f.party_loyalty_pct,
                    f.activity_score,
                    m.phone, m.office_address, m.contact_form,
                    m.twitter, m.facebook, m.youtube
@@ -535,7 +535,7 @@ def _build_member_detail(conn, bioguide_id: str) -> MemberDetail | None:
             official_url=row[10], leadership_role=row[11], start_date=row[12],
             bills_sponsored=row[13] or 0, bills_enacted=row[14] or 0,
             bills_passed=row[15] or 0, sponsor_success_rate=row[16] or 0,
-            votes_cast=row[17] or 0, votes_missed=row[18] or 0,
+            total_roll_calls=row[17] or 0, votes_missed=row[18] or 0,
             attendance_rate=row[19], party_loyalty_pct=row[20],
             activity_score=row[21],
             phone=row[22], office_address=row[23], contact_form=row[24],

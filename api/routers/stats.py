@@ -70,7 +70,7 @@ class MemberScorecard(BaseModel):
     bills_enacted: int
     bills_passed: int
     sponsor_success_rate: float | None
-    votes_cast: int
+    total_roll_calls: int
     votes_missed: int
     attendance_rate: float | None
     party_loyalty_pct: float | None
@@ -115,12 +115,12 @@ def member_scorecard(
     chamber: str | None = Query(None, description="Filter by chamber: house, senate"),
     party: str | None = Query(None, description="Filter by party: D, R, I"),
     state: str | None = Query(None, description="Filter by state code"),
-    sort: str = Query("bills_sponsored", description="Sort by: bills_sponsored, votes_cast, attendance_rate, party_loyalty_pct"),
+    sort: str = Query("bills_sponsored", description="Sort by: bills_sponsored, total_roll_calls, attendance_rate, party_loyalty_pct"),
     limit: int = Query(50, ge=1, le=250),
     offset: int = Query(0, ge=0),
 ):
     """Current member rankings by legislative activity."""
-    allowed_sorts = {"bills_sponsored", "votes_cast", "attendance_rate", "party_loyalty_pct", "activity_score"}
+    allowed_sorts = {"bills_sponsored", "total_roll_calls", "attendance_rate", "party_loyalty_pct", "activity_score"}
     if sort not in allowed_sorts:
         raise HTTPException(status_code=400, detail=f"sort must be one of: {', '.join(allowed_sorts)}")
 
@@ -145,7 +145,7 @@ def member_scorecard(
                 f"""
                 SELECT bioguide_id, full_name, party, state, chamber,
                        bills_sponsored, bills_enacted, bills_passed, sponsor_success_rate,
-                       votes_cast, votes_missed, attendance_rate, party_loyalty_pct,
+                       total_roll_calls, votes_missed, attendance_rate, party_loyalty_pct,
                        activity_score
                 FROM agg_member_scorecard
                 {where}
@@ -162,7 +162,7 @@ def member_scorecard(
             MemberScorecard(
                 bioguide_id=r[0], full_name=r[1], party=r[2], state=r[3], chamber=r[4],
                 bills_sponsored=r[5], bills_enacted=r[6], bills_passed=r[7],
-                sponsor_success_rate=r[8], votes_cast=r[9], votes_missed=r[10],
+                sponsor_success_rate=r[8], total_roll_calls=r[9], votes_missed=r[10],
                 attendance_rate=r[11], party_loyalty_pct=r[12], activity_score=r[13],
             )
             for r in rows
