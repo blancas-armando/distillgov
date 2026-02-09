@@ -61,6 +61,7 @@ logs/
 dbt_distillgov/target/
 dbt_distillgov/dbt_packages/
 dbt_distillgov/logs/
+dbt_distillgov/.user.yml
 
 # Misc
 *.log
