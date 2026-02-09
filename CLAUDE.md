@@ -138,7 +138,7 @@ Run `python -m ingestion.cli stats` to check current row counts.
 
 ## Git Workflow
 
-**Trunk-based development with conventional commits.**
+**Trunk-based development with conventional commits. Branch protection is enabled on `main` — all changes go through PRs.**
 
 ### Workflow
 ```bash
@@ -151,13 +151,18 @@ git checkout -b feat/my-feature
 git add <files>
 git commit -m "feat: add congress overview aggregation table"
 
-# 3. Merge back to main
-git checkout main
-git merge feat/my-feature
+# 3. Push feature branch and open PR
+git push -u origin feat/my-feature
+gh pr create --title "feat: add congress overview aggregation table" --body "..."
 
-# 4. Push
-git push
+# 4. Merge PR (no direct pushes to main)
+gh pr merge --merge
 ```
+
+### Rules
+- **Never push directly to `main`** — branch protection enforces this
+- Always merge via pull request
+- Delete feature branches after merge
 
 ### Branch Naming
 ```
