@@ -144,6 +144,14 @@ CREATE TABLE IF NOT EXISTS bill_subjects (
     PRIMARY KEY (bill_id, subject)
 );
 
+-- Sync metadata for incremental fetching
+CREATE TABLE IF NOT EXISTS sync_meta (
+    entity          TEXT PRIMARY KEY,  -- 'bills', 'votes', 'members', etc.
+    last_sync_at    TIMESTAMP,         -- When sync last ran
+    last_update_dt  TEXT,              -- fromDateTime value for next incremental run
+    record_count    INTEGER DEFAULT 0  -- Records processed in last sync
+);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_members_state ON members(state);
 CREATE INDEX IF NOT EXISTS idx_members_chamber ON members(chamber);

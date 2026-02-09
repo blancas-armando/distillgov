@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import duckdb
-from rich.console import Console
-from rich.progress import track
+import logging
 
-from config import DB_PATH
 from ingestion.client import CongressClient
+from ingestion.db import get_conn
 
-console = Console()
+log = logging.getLogger(__name__)
 
 
 def sync_committees(congress: int = 118):
@@ -17,7 +15,7 @@ def sync_committees(congress: int = 118):
 
     Fetches the committee list, then fetches membership for each committee.
     """
-    console.print(f"Fetching committees for Congress {congress}...")
+    log.info("Fetching committees for Congress %d...", congress)
 
     with CongressClient() as client:
         committees: list[dict] = []
@@ -36,70 +34,66 @@ def sync_committees(congress: int = 118):
             if offset >= response.get("pagination", {}).get("count", 0):
                 break
 
-        console.print(f"Found {len(committees)} committees")
+        log.info("Found %d committees", len(committees))
 
         if not committees:
             return
 
-        conn = duckdb.connect(str(DB_PATH))
+        with get_conn() as conn:
+            committees_inserted = 0
+            members_inserted = 0
 
-        committees_inserted = 0
-        members_inserted = 0
+            for committee in committees:
+                name = committee.get("name", "")
+                chamber = committee.get("chamber", "")
+                committee_type = committee.get("committeeTypeCode", "")
+                parent = committee.get("parent")
+                parent_id = parent.get("systemCode") if parent else None
+                url = committee.get("url")
 
-        for committee in track(committees, description="Loading committees..."):
-            name = committee.get("name", "")
-            chamber = committee.get("chamber", "")
-            committee_type = committee.get("committeeTypeCode", "")
-            parent = committee.get("parent")
-            parent_id = parent.get("systemCode") if parent else None
-            url = committee.get("url")
+                system_code = committee.get("systemCode", "")
+                if not system_code:
+                    continue
 
-            # systemCode is the committee identifier (e.g., "hsag00")
-            system_code = committee.get("systemCode", "")
-            if not system_code:
-                continue
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO committees (
+                        committee_id, name, chamber, committee_type, parent_id, url
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    [system_code, name, chamber.lower() if chamber else None,
+                     committee_type, parent_id, url]
+                )
+                committees_inserted += 1
 
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO committees (
-                    committee_id, name, chamber, committee_type, parent_id, url
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                [system_code, name, chamber.lower() if chamber else None,
-                 committee_type, parent_id, url]
-            )
-            committees_inserted += 1
+                try:
+                    chamber_code = chamber.lower() if chamber else "house"
+                    detail = client.get_committee(congress, chamber_code, system_code)
+                    committee_data = detail.get("committee", {})
 
-            # Fetch committee detail for member list (not in list endpoint)
-            try:
-                chamber_code = chamber.lower() if chamber else "house"
-                detail = client.get_committee(congress, chamber_code, system_code)
-                committee_data = detail.get("committee", {})
+                    current_members = committee_data.get("currentMembers", [])
+                    if not current_members:
+                        current_members = committee_data.get("members", [])
 
-                current_members = committee_data.get("currentMembers", [])
-                if not current_members:
-                    current_members = committee_data.get("members", [])
+                    for member in current_members:
+                        bioguide_id = member.get("bioguideId")
+                        if not bioguide_id:
+                            continue
 
-                for member in current_members:
-                    bioguide_id = member.get("bioguideId")
-                    if not bioguide_id:
-                        continue
+                        role = member.get("role") or "Member"
 
-                    role = member.get("role") or "Member"
+                        conn.execute(
+                            """
+                            INSERT OR REPLACE INTO committee_members (
+                                committee_id, bioguide_id, role
+                            ) VALUES (?, ?, ?)
+                            """,
+                            [system_code, bioguide_id, role]
+                        )
+                        members_inserted += 1
 
-                    conn.execute(
-                        """
-                        INSERT OR REPLACE INTO committee_members (
-                            committee_id, bioguide_id, role
-                        ) VALUES (?, ?, ?)
-                        """,
-                        [system_code, bioguide_id, role]
-                    )
-                    members_inserted += 1
+                except Exception as e:
+                    log.debug("  %s: %s", system_code, e)
+                    continue
 
-            except Exception as e:
-                console.print(f"[dim]  {system_code}: {e}[/dim]")
-                continue
-
-        conn.close()
-        console.print(f"[green]Inserted {committees_inserted} committees, {members_inserted} memberships[/green]")
+            log.info("Inserted %d committees, %d memberships", committees_inserted, members_inserted)

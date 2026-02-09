@@ -270,26 +270,32 @@ def get_bill(bill_id: str):
         if not row:
             raise HTTPException(status_code=404, detail="Bill not found")
 
-        cosponsor_counts = conn.execute(
-            """
-            SELECT
-                count(*) as total,
-                count(*) filter (where m.party = 'D') as dem,
-                count(*) filter (where m.party = 'R') as rep,
-                count(*) filter (where m.party not in ('D', 'R')) as ind
-            FROM bill_cosponsors c
-            LEFT JOIN members m ON c.bioguide_id = m.bioguide_id
-            WHERE c.bill_id = ?
-            """,
-            [bill_id],
-        ).fetchone()
+        try:
+            cosponsor_counts = conn.execute(
+                """
+                SELECT
+                    count(*) as total,
+                    count(*) filter (where m.party = 'D') as dem,
+                    count(*) filter (where m.party = 'R') as rep,
+                    count(*) filter (where m.party not in ('D', 'R')) as ind
+                FROM bill_cosponsors c
+                LEFT JOIN members m ON c.bioguide_id = m.bioguide_id
+                WHERE c.bill_id = ?
+                """,
+                [bill_id],
+            ).fetchone()
+        except Exception:
+            cosponsor_counts = (0, 0, 0, 0)
 
         # Get subjects
-        subject_rows = conn.execute(
-            "SELECT subject FROM bill_subjects WHERE bill_id = ? ORDER BY subject",
-            [bill_id],
-        ).fetchall()
-        subjects = [r[0] for r in subject_rows]
+        try:
+            subject_rows = conn.execute(
+                "SELECT subject FROM bill_subjects WHERE bill_id = ? ORDER BY subject",
+                [bill_id],
+            ).fetchall()
+            subjects = [r[0] for r in subject_rows]
+        except Exception:
+            subjects = []
 
         bill = _row_to_bill(row)
         return BillDetail(
