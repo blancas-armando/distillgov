@@ -70,20 +70,26 @@ def recent_activity(
         if zip_code:
             if len(zip_code) != 5 or not zip_code.isdigit():
                 raise HTTPException(status_code=400, detail="Zip code must be 5 digits")
-            rows = conn.execute(
-                """
-                SELECT DISTINCT m.bioguide_id
-                FROM zip_districts z
-                JOIN members m ON z.state = m.state AND z.district = m.district AND m.chamber = 'house'
-                WHERE z.zcta = ? AND m.is_current = TRUE
-                UNION
-                SELECT m.bioguide_id
-                FROM members m
-                WHERE m.state = (SELECT z.state FROM zip_districts z WHERE z.zcta = ? LIMIT 1)
-                  AND m.chamber = 'senate' AND m.is_current = TRUE
-                """,
-                [zip_code, zip_code],
-            ).fetchall()
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT DISTINCT m.bioguide_id
+                    FROM zip_districts z
+                    JOIN members m ON z.state = m.state AND z.district = m.district AND m.chamber = 'house'
+                    WHERE z.zcta = ? AND m.is_current = TRUE
+                    UNION
+                    SELECT m.bioguide_id
+                    FROM members m
+                    WHERE m.state = (SELECT z.state FROM zip_districts z WHERE z.zcta = ? LIMIT 1)
+                      AND m.chamber = 'senate' AND m.is_current = TRUE
+                    """,
+                    [zip_code, zip_code],
+                ).fetchall()
+            except Exception:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Zip code lookup is not available. Run 'python -m ingestion.cli sync load-zips' to load zip code data.",
+                )
             member_ids = [r[0] for r in rows]
             if not member_ids:
                 raise HTTPException(status_code=404, detail="No representatives found for this zip code")
@@ -286,17 +292,19 @@ def trending_subjects(
     in the given timeframe. Use these to understand what Congress is focused on.
     """
     with get_db() as conn:
-        rows = conn.execute(
-            """
-            SELECT bs.subject, count(DISTINCT bs.bill_id) as bill_count
-            FROM bill_subjects bs
-            JOIN bills b ON bs.bill_id = b.bill_id
-            WHERE b.latest_action_date >= current_date - interval ? day
-            GROUP BY bs.subject
-            ORDER BY bill_count DESC
-            LIMIT ?
-            """,
-            [days, limit],
-        ).fetchall()
-
-        return [{"subject": r[0], "bill_count": r[1]} for r in rows]
+        try:
+            rows = conn.execute(
+                """
+                SELECT bs.subject, count(DISTINCT bs.bill_id) as bill_count
+                FROM bill_subjects bs
+                JOIN bills b ON bs.bill_id = b.bill_id
+                WHERE b.latest_action_date >= current_date - interval ? day
+                GROUP BY bs.subject
+                ORDER BY bill_count DESC
+                LIMIT ?
+                """,
+                [days, limit],
+            ).fetchall()
+            return [{"subject": r[0], "bill_count": r[1]} for r in rows]
+        except Exception:
+            return []

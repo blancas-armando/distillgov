@@ -2,20 +2,76 @@
 
 from __future__ import annotations
 
-import duckdb
-from rich.console import Console
+import logging
+
 from rich.progress import track
 
-from config import DB_PATH
 from ingestion.client import CongressClient
 from ingestion.constants import normalize_state
+from ingestion.db import batch_execute, get_conn
+from ingestion.sync_meta import set_last_sync
 
-console = Console()
+log = logging.getLogger(__name__)
+
+INSERT_SQL = """
+    INSERT OR REPLACE INTO members (
+        bioguide_id, first_name, last_name, full_name,
+        party, state, district, chamber, is_current,
+        image_url, official_url, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+"""
+
+
+def _transform_member(member: dict) -> list | None:
+    """Transform a raw API member dict into an insert row, or None if invalid."""
+    bioguide_id = member.get("bioguideId")
+    if not bioguide_id:
+        return None
+
+    # Parse name (format: "Last, First Middle")
+    name = member.get("name", "")
+    parts = name.split(", ") if ", " in name else [name, ""]
+    last_name = parts[0] if parts else ""
+    first_name = parts[1].split()[0] if len(parts) > 1 and parts[1] else ""
+
+    # Determine chamber from terms
+    terms = member.get("terms", {}).get("item", [])
+    latest_term = terms[-1] if terms else {}
+    chamber_raw = latest_term.get("chamber", "")
+
+    if "house" in chamber_raw.lower():
+        chamber = "house"
+    elif "senate" in chamber_raw.lower():
+        chamber = "senate"
+    else:
+        # Fallback: if has district, it's house
+        chamber = "house" if member.get("district") else "senate"
+
+    # District (House only, 0 = at-large)
+    district = member.get("district")
+
+    # Party first letter
+    party_name = member.get("partyName", "")
+    party = party_name[0] if party_name else None
+
+    return [
+        bioguide_id,
+        first_name,
+        last_name,
+        name,
+        party,
+        normalize_state(member.get("state")),
+        district,
+        chamber,
+        True,
+        f"https://unitedstates.github.io/images/congress/450x550/{bioguide_id}.jpg",
+        member.get("officialWebsiteUrl"),
+    ]
 
 
 def sync_members(congress: int = 118):
     """Sync all current members into DuckDB."""
-    console.print("Fetching current members of Congress...")
+    log.info("Fetching current members of Congress...")
 
     with CongressClient() as client:
         members = []
@@ -30,74 +86,25 @@ def sync_members(congress: int = 118):
 
             members.extend(batch)
             offset += len(batch)
-            console.print(f"  Fetched {len(members)} members...")
+            log.info("  Fetched %d members...", len(members))
 
             if offset >= response.get("pagination", {}).get("count", 0):
                 break
 
-        console.print(f"Total: {len(members)} current members")
+        log.info("Total: %d current members", len(members))
 
-    # Transform and load into DuckDB
-    conn = duckdb.connect(str(DB_PATH))
-
-    inserted = 0
+    # Transform rows, filtering out members without a bioguide_id
+    rows = []
     for member in track(members, description="Loading members..."):
-        bioguide_id = member.get("bioguideId")
-        if not bioguide_id:
-            continue
+        row = _transform_member(member)
+        if row is not None:
+            rows.append(row)
 
-        # Parse name (format: "Last, First Middle")
-        name = member.get("name", "")
-        parts = name.split(", ") if ", " in name else [name, ""]
-        last_name = parts[0] if parts else ""
-        first_name = parts[1].split()[0] if len(parts) > 1 and parts[1] else ""
+    with get_conn() as conn:
+        inserted = batch_execute(conn, INSERT_SQL, rows)
 
-        # Determine chamber from terms
-        terms = member.get("terms", {}).get("item", [])
-        latest_term = terms[-1] if terms else {}
-        chamber_raw = latest_term.get("chamber", "")
-
-        if "house" in chamber_raw.lower():
-            chamber = "house"
-        elif "senate" in chamber_raw.lower():
-            chamber = "senate"
-        else:
-            # Fallback: if has district, it's house
-            chamber = "house" if member.get("district") else "senate"
-
-        # District (House only, 0 = at-large)
-        district = member.get("district")
-
-        # Party first letter
-        party_name = member.get("partyName", "")
-        party = party_name[0] if party_name else None
-
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO members (
-                bioguide_id, first_name, last_name, full_name,
-                party, state, district, chamber, is_current,
-                image_url, official_url, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """,
-            [
-                bioguide_id,
-                first_name,
-                last_name,
-                name,
-                party,
-                normalize_state(member.get("state")),
-                district,
-                chamber,
-                True,
-                f"https://unitedstates.github.io/images/congress/450x550/{bioguide_id}.jpg",
-                member.get("officialWebsiteUrl"),
-            ],
-        )
-        inserted += 1
-
-    conn.close()
-    console.print(f"[green]Inserted {inserted} members[/green]")
+    log.info("Inserted %d members", inserted)
+    set_last_sync("members", inserted)
 
 
 if __name__ == "__main__":

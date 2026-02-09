@@ -141,24 +141,30 @@ def get_members_by_zip(zip_code: str):
         raise HTTPException(status_code=400, detail="Zip code must be 5 digits")
 
     with get_db() as conn:
-        rows = conn.execute(
-            """
-            SELECT m.bioguide_id, m.first_name, m.last_name, m.full_name,
-                   m.party, m.state, m.district, m.chamber, m.is_current,
-                   m.image_url, m.official_url
-            FROM zip_districts z
-            JOIN members m ON z.state = m.state AND z.district = m.district AND m.chamber = 'house'
-            WHERE z.zcta = ? AND m.is_current = TRUE
-            UNION ALL
-            SELECT m.bioguide_id, m.first_name, m.last_name, m.full_name,
-                   m.party, m.state, m.district, m.chamber, m.is_current,
-                   m.image_url, m.official_url
-            FROM members m
-            WHERE m.state = (SELECT z.state FROM zip_districts z WHERE z.zcta = ? LIMIT 1)
-              AND m.chamber = 'senate' AND m.is_current = TRUE
-            """,
-            [zip_code, zip_code],
-        ).fetchall()
+        try:
+            rows = conn.execute(
+                """
+                SELECT m.bioguide_id, m.first_name, m.last_name, m.full_name,
+                       m.party, m.state, m.district, m.chamber, m.is_current,
+                       m.image_url, m.official_url
+                FROM zip_districts z
+                JOIN members m ON z.state = m.state AND z.district = m.district AND m.chamber = 'house'
+                WHERE z.zcta = ? AND m.is_current = TRUE
+                UNION ALL
+                SELECT m.bioguide_id, m.first_name, m.last_name, m.full_name,
+                       m.party, m.state, m.district, m.chamber, m.is_current,
+                       m.image_url, m.official_url
+                FROM members m
+                WHERE m.state = (SELECT z.state FROM zip_districts z WHERE z.zcta = ? LIMIT 1)
+                  AND m.chamber = 'senate' AND m.is_current = TRUE
+                """,
+                [zip_code, zip_code],
+            ).fetchall()
+        except Exception:
+            raise HTTPException(
+                status_code=503,
+                detail="Zip code lookup is not available. Run 'python -m ingestion.cli sync load-zips' to load zip code data.",
+            )
 
         if not rows:
             raise HTTPException(status_code=404, detail="No representatives found for this zip code")
@@ -433,17 +439,20 @@ def _row_to_member(r: tuple) -> Member:
 
 def _get_committees(conn, bioguide_id: str) -> list[MemberCommittee]:
     """Get committee assignments for a member."""
-    rows = conn.execute(
-        """
-        SELECT cm.committee_id, c.name, cm.role
-        FROM committee_members cm
-        JOIN committees c ON cm.committee_id = c.committee_id
-        WHERE cm.bioguide_id = ?
-        ORDER BY c.name
-        """,
-        [bioguide_id],
-    ).fetchall()
-    return [MemberCommittee(committee_id=r[0], name=r[1], role=r[2]) for r in rows]
+    try:
+        rows = conn.execute(
+            """
+            SELECT cm.committee_id, c.name, cm.role
+            FROM committee_members cm
+            JOIN committees c ON cm.committee_id = c.committee_id
+            WHERE cm.bioguide_id = ?
+            ORDER BY c.name
+            """,
+            [bioguide_id],
+        ).fetchall()
+        return [MemberCommittee(committee_id=r[0], name=r[1], role=r[2]) for r in rows]
+    except Exception:
+        return []
 
 
 def _get_recent_votes(conn, bioguide_id: str, limit: int = 5) -> list[RecentVote]:
@@ -495,8 +504,7 @@ def _build_member_detail(conn, bioguide_id: str) -> MemberDetail | None:
                    f.bills_sponsored, f.bills_enacted, f.bills_passed, f.sponsor_success_rate,
                    f.total_roll_calls, f.votes_missed, f.attendance_rate, f.party_loyalty_pct,
                    f.activity_score,
-                   m.phone, m.office_address, m.contact_form,
-                   m.twitter, m.facebook, m.youtube
+                   m.phone, m.office_address
             FROM fct_members f
             JOIN members m ON f.bioguide_id = m.bioguide_id
             WHERE f.bioguide_id = ?
@@ -513,8 +521,7 @@ def _build_member_detail(conn, bioguide_id: str) -> MemberDetail | None:
             SELECT bioguide_id, first_name, last_name, full_name,
                    party, state, district, chamber, is_current,
                    image_url, official_url,
-                   phone, office_address, contact_form,
-                   twitter, facebook, youtube
+                   phone, office_address
             FROM members WHERE bioguide_id = ?
             """,
             [bioguide_id],
@@ -538,8 +545,7 @@ def _build_member_detail(conn, bioguide_id: str) -> MemberDetail | None:
             total_roll_calls=row[17] or 0, votes_missed=row[18] or 0,
             attendance_rate=row[19], party_loyalty_pct=row[20],
             activity_score=row[21],
-            phone=row[22], office_address=row[23], contact_form=row[24],
-            twitter=row[25], facebook=row[26], youtube=row[27],
+            phone=row[22], office_address=row[23],
             committees=committees,
             recent_votes=recent_votes,
             recent_bills=recent_bills,
@@ -551,8 +557,7 @@ def _build_member_detail(conn, bioguide_id: str) -> MemberDetail | None:
         full_name=raw[3], party=raw[4], state=raw[5], district=raw[6],
         chamber=raw[7], is_current=raw[8], image_url=raw[9],
         official_url=raw[10],
-        phone=raw[11], office_address=raw[12], contact_form=raw[13],
-        twitter=raw[14], facebook=raw[15], youtube=raw[16],
+        phone=raw[11], office_address=raw[12],
         committees=committees, recent_votes=recent_votes,
         recent_bills=recent_bills,
     )

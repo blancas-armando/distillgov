@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
-import duckdb
 import yaml
-from rich.console import Console
 
-from config import DB_PATH
+from ingestion.db import get_conn
 
-console = Console()
+log = logging.getLogger(__name__)
 
 _DATA_DIR = Path(__file__).parent.parent / "db"
 _LEGISLATORS_YAML = _DATA_DIR / "legislators-current.yaml"
@@ -27,16 +26,16 @@ def _download_if_missing(path: Path, filename: str) -> bool:
     import httpx
 
     url = f"{_YAML_BASE}/{filename}"
-    console.print(f"  Downloading {filename}...")
+    log.info("Downloading %s...", filename)
 
     try:
         response = httpx.get(url, timeout=60.0, follow_redirects=True)
         response.raise_for_status()
         path.write_bytes(response.content)
-        console.print(f"  [green]Downloaded {filename} ({len(response.content):,} bytes)[/green]")
+        log.info("Downloaded %s (%s bytes)", filename, f"{len(response.content):,}")
         return True
     except Exception as e:
-        console.print(f"[red]Failed to download {filename}: {e}[/red]")
+        log.error("Failed to download %s: %s", filename, e)
         return False
 
 
@@ -46,7 +45,7 @@ def enrich_members():
     Downloads YAML files from unitedstates/congress-legislators and
     matches by bioguide_id to update member records.
     """
-    console.print("[blue]Enriching members with contact and social media data...[/blue]")
+    log.info("Enriching members with contact and social media data...")
 
     # Download YAML files if needed
     if not _download_if_missing(_LEGISLATORS_YAML, "legislators-current.yaml"):
@@ -55,11 +54,11 @@ def enrich_members():
         return
 
     # Parse YAML files
-    console.print("  Parsing legislators-current.yaml...")
+    log.info("Parsing legislators-current.yaml...")
     with open(_LEGISLATORS_YAML) as f:
         legislators = yaml.safe_load(f)
 
-    console.print("  Parsing legislators-social-media.yaml...")
+    log.info("Parsing legislators-social-media.yaml...")
     with open(_SOCIAL_YAML) as f:
         social_media = yaml.safe_load(f)
 
@@ -93,44 +92,43 @@ def enrich_members():
             "youtube": social.get("youtube") or social.get("youtube_id"),
         }
 
-    console.print(f"  Loaded {len(contact_by_id)} contact records, {len(social_by_id)} social records")
+    log.info("Loaded %d contact records, %d social records", len(contact_by_id), len(social_by_id))
 
     # Update database
-    conn = duckdb.connect(str(DB_PATH))
-    members = conn.execute("SELECT bioguide_id FROM members WHERE is_current = TRUE").fetchall()
+    with get_conn() as conn:
+        members = conn.execute("SELECT bioguide_id FROM members WHERE is_current = TRUE").fetchall()
 
-    # Build batch of update parameters
-    update_params = []
-    for (bioguide_id,) in members:
-        contact = contact_by_id.get(bioguide_id, {})
-        social = social_by_id.get(bioguide_id, {})
+        # Build batch of update parameters
+        update_params = []
+        for (bioguide_id,) in members:
+            contact = contact_by_id.get(bioguide_id, {})
+            social = social_by_id.get(bioguide_id, {})
 
-        if not contact and not social:
-            continue
+            if not contact and not social:
+                continue
 
-        update_params.append([
-            contact.get("phone"),
-            contact.get("office_address"),
-            contact.get("contact_form"),
-            social.get("twitter"),
-            social.get("facebook"),
-            social.get("youtube"),
-            bioguide_id,
-        ])
+            update_params.append([
+                contact.get("phone"),
+                contact.get("office_address"),
+                contact.get("contact_form"),
+                social.get("twitter"),
+                social.get("facebook"),
+                social.get("youtube"),
+                bioguide_id,
+            ])
 
-    conn.executemany(
-        """
-        UPDATE members SET
-            phone = coalesce(?, phone),
-            office_address = coalesce(?, office_address),
-            contact_form = coalesce(?, contact_form),
-            twitter = coalesce(?, twitter),
-            facebook = coalesce(?, facebook),
-            youtube = coalesce(?, youtube)
-        WHERE bioguide_id = ?
-        """,
-        update_params,
-    )
+        conn.executemany(
+            """
+            UPDATE members SET
+                phone = coalesce(?, phone),
+                office_address = coalesce(?, office_address),
+                contact_form = coalesce(?, contact_form),
+                twitter = coalesce(?, twitter),
+                facebook = coalesce(?, facebook),
+                youtube = coalesce(?, youtube)
+            WHERE bioguide_id = ?
+            """,
+            update_params,
+        )
 
-    conn.close()
-    console.print(f"[green]Enriched {len(update_params)} members with contact + social data[/green]")
+    log.info("Enriched %d members with contact + social data", len(update_params))

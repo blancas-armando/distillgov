@@ -1,19 +1,50 @@
-"""Congress.gov API client."""
+"""Congress.gov API client with rate limiting and retry."""
 
 from __future__ import annotations
 
 import os
-import httpx
+import time
+import threading
 from typing import Any
+
+import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
 
 BASE_URL = "https://api.congress.gov/v3"
 
+# Congress.gov limit: 5,000 requests/hour → ~1.4/sec. We use 1/sec for safety.
+_RATE_LIMIT_RPS = 1.0
+_MAX_RETRIES = 3
+_RETRY_BACKOFF_BASE = 2.0  # seconds: 2, 4, 8
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+
+class _RateLimiter:
+    """Simple token-bucket rate limiter (thread-safe)."""
+
+    def __init__(self, rps: float):
+        self._min_interval = 1.0 / rps
+        self._last_call = 0.0
+        self._lock = threading.Lock()
+
+    def wait(self):
+        with self._lock:
+            now = time.monotonic()
+            elapsed = now - self._last_call
+            if elapsed < self._min_interval:
+                time.sleep(self._min_interval - elapsed)
+            self._last_call = time.monotonic()
+
 
 class CongressClient:
-    """Client for the Congress.gov API."""
+    """Client for the Congress.gov API.
+
+    Features:
+    - Rate limiting (~1 req/sec, well under 5k/hr)
+    - Retry with exponential backoff on 429/5xx
+    """
 
     def __init__(self, api_key: str | None = None):
         self.api_key = api_key or os.getenv("CONGRESS_API_KEY")
@@ -22,17 +53,36 @@ class CongressClient:
                 "CONGRESS_API_KEY required. Get one at https://api.congress.gov/sign-up/"
             )
         self.client = httpx.Client(timeout=30.0)
+        self._limiter = _RateLimiter(_RATE_LIMIT_RPS)
 
     def _get(self, endpoint: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Make a GET request to the API."""
+        """Make a GET request with rate limiting and retry."""
         params = params or {}
         params["api_key"] = self.api_key
         params["format"] = "json"
 
         url = f"{BASE_URL}/{endpoint}"
-        response = self.client.get(url, params=params)
+
+        for attempt in range(_MAX_RETRIES + 1):
+            self._limiter.wait()
+            response = self.client.get(url, params=params)
+
+            if response.status_code not in _RETRYABLE_STATUS:
+                response.raise_for_status()
+                return response.json()
+
+            if attempt < _MAX_RETRIES:
+                wait = _RETRY_BACKOFF_BASE ** (attempt + 1)
+                if response.status_code == 429:
+                    # Respect Retry-After header if present
+                    retry_after = response.headers.get("Retry-After")
+                    if retry_after and retry_after.isdigit():
+                        wait = max(wait, int(retry_after))
+                time.sleep(wait)
+
+        # Final attempt failed
         response.raise_for_status()
-        return response.json()
+        return response.json()  # unreachable, raise_for_status throws
 
     def get_members(
         self,
@@ -56,9 +106,20 @@ class CongressClient:
         bill_type: str | None = None,
         limit: int = 250,
         offset: int = 0,
+        from_datetime: str | None = None,
+        to_datetime: str | None = None,
     ) -> dict[str, Any]:
-        """Get bills for a congress."""
+        """Get bills for a congress.
+
+        Args:
+            from_datetime: ISO format "YYYY-MM-DDT00:00:00Z" — only bills updated after this
+            to_datetime: ISO format — only bills updated before this
+        """
         params: dict[str, Any] = {"limit": limit, "offset": offset}
+        if from_datetime:
+            params["fromDateTime"] = from_datetime
+        if to_datetime:
+            params["toDateTime"] = to_datetime
 
         if bill_type:
             endpoint = f"bill/{congress}/{bill_type}"
@@ -123,10 +184,20 @@ class CongressClient:
         session: int | None = None,
         limit: int = 250,
         offset: int = 0,
+        from_datetime: str | None = None,
+        to_datetime: str | None = None,
     ) -> dict[str, Any]:
-        """Get roll call votes."""
+        """Get roll call votes.
+
+        Args:
+            from_datetime: ISO format — only votes updated after this
+            to_datetime: ISO format — only votes updated before this
+        """
         params: dict[str, Any] = {"limit": limit, "offset": offset}
-        # Note: House votes endpoint is newer, Senate may differ
+        if from_datetime:
+            params["fromDateTime"] = from_datetime
+        if to_datetime:
+            params["toDateTime"] = to_datetime
         if session:
             endpoint = f"house-vote/{congress}/{session}"
         else:
