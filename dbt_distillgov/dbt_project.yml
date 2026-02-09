@@ -15,7 +15,3 @@ models:
       +materialized: view
     marts:
       +materialized: view
-      fct_bills:
-        +materialized: table
-      fct_members:
-        +materialized: table

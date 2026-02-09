@@ -27,3 +27,11 @@ def get_db() -> Generator[duckdb.DuckDBPyConnection, None, None]:
 def escape_like(value: str) -> str:
     """Escape special ILIKE characters (%, _, \\) in user input."""
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+PASSAGE_VOTE_FILTER = (
+    "(question ILIKE '%passage%' OR question ILIKE '%pass%' "
+    "OR question ILIKE '%conference report%' OR question ILIKE '%override%' "
+    "OR question ILIKE '%concur%' OR question ILIKE '%adopt%' "
+    "OR question ILIKE '%ratif%')"
+)

@@ -7,7 +7,7 @@ with sponsorship_stats as (
         sponsor_id,
         count(*) as bills_sponsored,
         count(*) filter (where status = 'enacted') as bills_enacted,
-        count(*) filter (where status in ('passed_house', 'passed_senate', 'passed_both', 'enacted')) as bills_passed
+        count(*) filter (where status in ('passed_house', 'passed_senate', 'enacted')) as bills_passed
     from {{ ref('stg_bills') }}
     where sponsor_id is not null
     group by sponsor_id

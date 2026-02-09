@@ -7,7 +7,7 @@ from datetime import date
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from api.database import escape_like, get_db
+from api.database import PASSAGE_VOTE_FILTER, escape_like, get_db
 
 router = APIRouter()
 
@@ -322,10 +322,7 @@ def get_member_votes(
             params.append(policy_area)
 
         if passage_only:
-            conditions.append(
-                "(v.question ILIKE '%passage%' OR v.question ILIKE '%pass%' "
-                "OR v.question ILIKE '%conference report%' OR v.question ILIKE '%override%')"
-            )
+            conditions.append(PASSAGE_VOTE_FILTER.replace("question", "v.question"))
 
         where = " AND ".join(conditions)
 
@@ -436,108 +433,99 @@ def _row_to_member(r: tuple) -> Member:
 
 def _get_committees(conn, bioguide_id: str) -> list[MemberCommittee]:
     """Get committee assignments for a member."""
-    try:
-        rows = conn.execute(
-            """
-            SELECT cm.committee_id, c.name, cm.role
-            FROM committee_members cm
-            JOIN committees c ON cm.committee_id = c.committee_id
-            WHERE cm.bioguide_id = ?
-            ORDER BY c.name
-            """,
-            [bioguide_id],
-        ).fetchall()
-        return [MemberCommittee(committee_id=r[0], name=r[1], role=r[2]) for r in rows]
-    except Exception:
-        return []
-
-
-def _get_contact_fields(conn, bioguide_id: str) -> dict:
-    """Get contact and social media fields for a member."""
-    try:
-        row = conn.execute(
-            """
-            SELECT phone, office_address, contact_form, twitter, facebook, youtube
-            FROM members WHERE bioguide_id = ?
-            """,
-            [bioguide_id],
-        ).fetchone()
-        if row:
-            return {
-                "phone": row[0], "office_address": row[1], "contact_form": row[2],
-                "twitter": row[3], "facebook": row[4], "youtube": row[5],
-            }
-    except Exception:
-        pass
-    return {}
+    rows = conn.execute(
+        """
+        SELECT cm.committee_id, c.name, cm.role
+        FROM committee_members cm
+        JOIN committees c ON cm.committee_id = c.committee_id
+        WHERE cm.bioguide_id = ?
+        ORDER BY c.name
+        """,
+        [bioguide_id],
+    ).fetchall()
+    return [MemberCommittee(committee_id=r[0], name=r[1], role=r[2]) for r in rows]
 
 
 def _get_recent_votes(conn, bioguide_id: str, limit: int = 5) -> list[RecentVote]:
     """Get a member's most recent votes."""
-    try:
-        rows = conn.execute(
-            """
-            SELECT v.vote_id, v.vote_date, v.question, mv.position
-            FROM member_votes mv
-            JOIN votes v ON mv.vote_id = v.vote_id
-            WHERE mv.bioguide_id = ?
-            ORDER BY v.vote_date DESC NULLS LAST
-            LIMIT ?
-            """,
-            [bioguide_id, limit],
-        ).fetchall()
-        return [
-            RecentVote(vote_id=r[0], vote_date=r[1], question=r[2], position=r[3])
-            for r in rows
-        ]
-    except Exception:
-        return []
+    rows = conn.execute(
+        """
+        SELECT v.vote_id, v.vote_date, v.question, mv.position
+        FROM member_votes mv
+        JOIN votes v ON mv.vote_id = v.vote_id
+        WHERE mv.bioguide_id = ?
+        ORDER BY v.vote_date DESC NULLS LAST
+        LIMIT ?
+        """,
+        [bioguide_id, limit],
+    ).fetchall()
+    return [
+        RecentVote(vote_id=r[0], vote_date=r[1], question=r[2], position=r[3])
+        for r in rows
+    ]
 
 
 def _get_recent_bills(conn, bioguide_id: str, limit: int = 5) -> list[RecentBill]:
     """Get a member's most recently sponsored bills."""
-    try:
-        rows = conn.execute(
-            """
-            SELECT bill_id, title, introduced_date, status
-            FROM bills
-            WHERE sponsor_id = ?
-            ORDER BY introduced_date DESC NULLS LAST
-            LIMIT ?
-            """,
-            [bioguide_id, limit],
-        ).fetchall()
-        return [
-            RecentBill(bill_id=r[0], title=r[1], introduced_date=r[2], status=r[3])
-            for r in rows
-        ]
-    except Exception:
-        return []
+    rows = conn.execute(
+        """
+        SELECT bill_id, title, introduced_date, status
+        FROM bills
+        WHERE sponsor_id = ?
+        ORDER BY introduced_date DESC NULLS LAST
+        LIMIT ?
+        """,
+        [bioguide_id, limit],
+    ).fetchall()
+    return [
+        RecentBill(bill_id=r[0], title=r[1], introduced_date=r[2], status=r[3])
+        for r in rows
+    ]
 
 
 def _build_member_detail(conn, bioguide_id: str) -> MemberDetail | None:
     """Build a full MemberDetail with stats, contact info, committees, and recent activity."""
-    contact = _get_contact_fields(conn, bioguide_id)
-    committees = _get_committees(conn, bioguide_id)
-    recent_votes = _get_recent_votes(conn, bioguide_id)
-    recent_bills = _get_recent_bills(conn, bioguide_id)
-
-    # Try fct_members first (has computed stats)
+    # Try fct_members first (has computed stats), join contact fields from members
     try:
         row = conn.execute(
             """
-            SELECT bioguide_id, first_name, last_name, full_name,
-                   party, state, district, chamber, is_current,
-                   image_url, official_url, leadership_role, start_date,
-                   bills_sponsored, bills_enacted, bills_passed, sponsor_success_rate,
-                   votes_cast, votes_missed, attendance_rate, party_loyalty_pct,
-                   activity_score
-            FROM fct_members WHERE bioguide_id = ?
+            SELECT f.bioguide_id, f.first_name, f.last_name, f.full_name,
+                   f.party, f.state, f.district, f.chamber, f.is_current,
+                   f.image_url, f.official_url, f.leadership_role, f.start_date,
+                   f.bills_sponsored, f.bills_enacted, f.bills_passed, f.sponsor_success_rate,
+                   f.votes_cast, f.votes_missed, f.attendance_rate, f.party_loyalty_pct,
+                   f.activity_score,
+                   m.phone, m.office_address, m.contact_form,
+                   m.twitter, m.facebook, m.youtube
+            FROM fct_members f
+            JOIN members m ON f.bioguide_id = m.bioguide_id
+            WHERE f.bioguide_id = ?
             """,
             [bioguide_id],
         ).fetchone()
     except Exception:
         row = None
+
+    if not row:
+        # Fallback to raw members table
+        raw = conn.execute(
+            """
+            SELECT bioguide_id, first_name, last_name, full_name,
+                   party, state, district, chamber, is_current,
+                   image_url, official_url,
+                   phone, office_address, contact_form,
+                   twitter, facebook, youtube
+            FROM members WHERE bioguide_id = ?
+            """,
+            [bioguide_id],
+        ).fetchone()
+        if not raw:
+            return None
+
+    # Member exists -- fetch enrichment data
+    committees = _get_committees(conn, bioguide_id)
+    recent_votes = _get_recent_votes(conn, bioguide_id)
+    recent_bills = _get_recent_bills(conn, bioguide_id)
 
     if row:
         return MemberDetail(
@@ -550,30 +538,23 @@ def _build_member_detail(conn, bioguide_id: str) -> MemberDetail | None:
             votes_cast=row[17] or 0, votes_missed=row[18] or 0,
             attendance_rate=row[19], party_loyalty_pct=row[20],
             activity_score=row[21],
+            phone=row[22], office_address=row[23], contact_form=row[24],
+            twitter=row[25], facebook=row[26], youtube=row[27],
             committees=committees,
             recent_votes=recent_votes,
             recent_bills=recent_bills,
-            **contact,
         )
 
-    # Fallback to raw members table
-    raw = conn.execute(
-        """
-        SELECT bioguide_id, first_name, last_name, full_name,
-               party, state, district, chamber, is_current,
-               image_url, official_url
-        FROM members WHERE bioguide_id = ?
-        """,
-        [bioguide_id],
-    ).fetchone()
-
-    if not raw:
-        return None
-
+    # raw was fetched in the fallback check above
     return MemberDetail(
-        **_row_to_member(raw).model_dump(),
+        bioguide_id=raw[0], first_name=raw[1], last_name=raw[2],
+        full_name=raw[3], party=raw[4], state=raw[5], district=raw[6],
+        chamber=raw[7], is_current=raw[8], image_url=raw[9],
+        official_url=raw[10],
+        phone=raw[11], office_address=raw[12], contact_form=raw[13],
+        twitter=raw[14], facebook=raw[15], youtube=raw[16],
         committees=committees, recent_votes=recent_votes,
-        recent_bills=recent_bills, **contact,
+        recent_bills=recent_bills,
     )
 
 

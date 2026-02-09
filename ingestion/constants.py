@@ -39,3 +39,22 @@ def normalize_state(state: str | None) -> str | None:
     if len(state) == 2 and state.upper() in _VALID_ABBRS:
         return state.upper()
     return STATE_CODES.get(state)
+
+
+MAX_CONSECUTIVE_ERRORS = 10
+
+
+class SyncError(Exception):
+    """Raised when too many consecutive API errors indicate a systemic failure."""
+
+
+def check_consecutive_errors(error_count: int, last_error: Exception) -> None:
+    """Abort sync if consecutive errors exceed threshold.
+
+    Call with the running error count after each failure. Resets are the
+    caller's responsibility (set count back to 0 on success).
+    """
+    if error_count >= MAX_CONSECUTIVE_ERRORS:
+        raise SyncError(
+            f"Aborting: {error_count} consecutive errors. Last: {last_error}"
+        ) from last_error

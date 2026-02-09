@@ -30,11 +30,12 @@ def load_zip_districts():
     conn.execute("DELETE FROM zip_districts")
 
     conn.execute(
-        f"""
+        """
         INSERT INTO zip_districts (zcta, state, district)
         SELECT zcta, state_abbr, CAST(cd AS INTEGER)
-        FROM read_csv_auto('{_CSV_PATH}')
-        """
+        FROM read_csv_auto(?)
+        """,
+        [str(_CSV_PATH)],
     )
 
     count = conn.execute("SELECT COUNT(*) FROM zip_districts").fetchone()[0]

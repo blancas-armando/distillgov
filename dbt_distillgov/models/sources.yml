@@ -12,6 +12,8 @@ sources:
         description: Roll call votes
       - name: member_votes
         description: Individual member voting positions
+      - name: trades
+        description: Stock trades by members of Congress
       - name: bill_cosponsors
         description: Bill cosponsor relationships
       - name: bill_actions

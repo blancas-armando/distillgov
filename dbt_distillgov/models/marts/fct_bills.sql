@@ -9,7 +9,7 @@ with cosponsorship as (
         count(*) filter (where m.party = 'D') as dem_cosponsors,
         count(*) filter (where m.party = 'R') as rep_cosponsors,
         count(*) filter (where m.party not in ('D', 'R')) as ind_cosponsors
-    from {{ source('raw', 'bill_cosponsors') }} c
+    from {{ ref('stg_bill_cosponsors') }} c
     left join {{ ref('stg_members') }} m on c.bioguide_id = m.bioguide_id
     group by c.bill_id
 )
@@ -41,7 +41,7 @@ select
     coalesce(cs.dem_cosponsors, 0) as dem_cosponsors,
     coalesce(cs.rep_cosponsors, 0) as rep_cosponsors,
     coalesce(cs.ind_cosponsors, 0) as ind_cosponsors,
-    cs.dem_cosponsors > 0 and cs.rep_cosponsors > 0 as is_bipartisan,
+    coalesce(cs.dem_cosponsors, 0) > 0 and coalesce(cs.rep_cosponsors, 0) > 0 as is_bipartisan,
 
     -- Time dimensions
     date_trunc('week', b.introduced_date) as introduced_week,
@@ -68,11 +68,11 @@ select
 
     -- Status flags
     b.status = 'enacted' as is_enacted,
-    b.status in ('passed_house', 'passed_senate', 'passed_both') as is_passed,
+    b.status in ('passed_house', 'passed_senate') as is_passed,
     b.status = 'in_committee' as is_in_committee,
     b.status = 'introduced' as is_new,
-    datediff('day', b.latest_action_date, current_date) > 90 as is_stale,
-    datediff('day', b.latest_action_date, current_date) <= 30 as is_recently_active
+    coalesce(datediff('day', b.latest_action_date, current_date) > 90, false) as is_stale,
+    coalesce(datediff('day', b.latest_action_date, current_date) <= 30, false) as is_recently_active
 
 from {{ ref('stg_bills') }} b
 left join {{ ref('stg_members') }} m on b.sponsor_id = m.bioguide_id
