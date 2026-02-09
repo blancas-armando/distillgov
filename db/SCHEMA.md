@@ -10,14 +10,19 @@ erDiagram
     members ||--o{ member_votes : "casts"
     members ||--o{ bill_cosponsors : "cosponsors"
     members ||--o{ bills : "sponsors"
+    members ||--o{ committee_members : "serves on"
 
     bills ||--o{ bill_cosponsors : "has"
     bills ||--o{ bill_actions : "has"
+    bills ||--o{ bill_subjects : "tagged with"
     bills ||--o{ votes : "voted on"
 
     votes ||--o{ member_votes : "records"
 
     committees ||--o{ committees : "has subcommittees"
+    committees ||--o{ committee_members : "has"
+
+    zip_districts }o--|| members : "maps to"
 
     members {
         text bioguide_id PK
@@ -31,6 +36,13 @@ erDiagram
         bool is_current
         text image_url
         text official_url
+        text phone
+        text office_address
+        text contact_form
+        text twitter
+        text facebook
+        text youtube
+        text leadership_role
         date start_date
     }
 
@@ -40,10 +52,13 @@ erDiagram
         text bill_type
         int bill_number
         text title
+        text short_title
         text sponsor_id FK
         text policy_area
         text origin_chamber
         text status
+        text summary
+        text full_text_url
         text latest_action
         date latest_action_date
     }
@@ -52,13 +67,18 @@ erDiagram
         text vote_id PK
         int congress
         text chamber
+        int session
         int roll_call
         date vote_date
+        time vote_time
         text question
+        text description
         text result
         text bill_id FK
         int yea_count
         int nay_count
+        int present_count
+        int not_voting
     }
 
     member_votes {
@@ -74,11 +94,13 @@ erDiagram
         date disclosure_date
         text ticker
         text asset_name
+        text asset_type
         text trade_type
         int amount_low
         int amount_high
         text owner
         text ptr_link
+        text comment
     }
 
     bill_cosponsors {
@@ -94,6 +116,12 @@ erDiagram
         date action_date
         text action_text
         text action_type
+        text chamber
+    }
+
+    bill_subjects {
+        text bill_id PK
+        text subject PK
     }
 
     committees {
@@ -102,6 +130,19 @@ erDiagram
         text chamber
         text committee_type
         text parent_id FK
+        text url
+    }
+
+    committee_members {
+        text committee_id PK
+        text bioguide_id PK
+        text role
+    }
+
+    zip_districts {
+        text zcta PK
+        text state PK
+        int district PK
     }
 ```
 
@@ -111,78 +152,79 @@ erDiagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              DISTILLGOV SCHEMA                                   │
+│                              DISTILLGOV SCHEMA                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 
                                  ┌─────────────────┐
-                                 │    members      │
+                                 │    members       │
                                  ├─────────────────┤
-                                 │ PK bioguide_id  │
-                                 │    first_name   │
-                                 │    last_name    │
-                                 │    party        │◄─────────────────────────────┐
-                                 │    state        │                              │
-                                 │    district     │                              │
-                                 │    chamber      │                              │
-                                 │    is_current   │                              │
-                                 │    image_url    │                              │
+                                 │ PK bioguide_id   │
+                                 │    first_name    │
+                                 │    last_name     │
+                                 │    party         │◄─────────────────────────────┐
+                                 │    state         │                              │
+                                 │    district      │                              │
+                                 │    chamber       │                              │
+                                 │    is_current    │                              │
+                                 │    image_url     │                              │
+                                 │    contact_form  │                              │
+                                 │    twitter       │                              │
+                                 │    facebook      │                              │
+                                 │    youtube       │                              │
                                  └────────┬────────┘                              │
-                                          │                                        │
-            ┌─────────────────────────────┼─────────────────────────────┐         │
-            │                             │                             │         │
-            ▼                             ▼                             ▼         │
-┌───────────────────┐         ┌───────────────────┐         ┌───────────────────┐│
-│      trades       │         │   member_votes    │         │  bill_cosponsors  ││
-├───────────────────┤         ├───────────────────┤         ├───────────────────┤│
-│ PK trade_id       │         │ PK vote_id    ────│────┐    │ PK bill_id    ────│─┼─┐
-│ FK bioguide_id ───│─────────│ PK bioguide_id    │    │    │ PK bioguide_id ───│─┘ │
-│    transaction_dt │         │    position       │    │    │    cosponsor_date │   │
-│    ticker         │         └───────────────────┘    │    │    is_original    │   │
-│    asset_name     │                                  │    └───────────────────┘   │
-│    trade_type     │                                  │                            │
-│    amount_low/high│                                  │                            │
-│    owner          │                                  │                            │
-│    ptr_link       │                                  │                            │
-└───────────────────┘                                  │                            │
-                                                       │                            │
-                              ┌────────────────────────┘                            │
-                              │                                                     │
-                              ▼                                                     │
-                    ┌───────────────────┐         ┌───────────────────┐            │
-                    │      votes        │         │      bills        │◄───────────┘
-                    ├───────────────────┤         ├───────────────────┤
-                    │ PK vote_id        │         │ PK bill_id        │
-                    │    congress       │    ┌───▶│    congress       │
-                    │    chamber        │    │    │    bill_type      │
-                    │    roll_call      │    │    │    bill_number    │
-                    │    vote_date      │    │    │    title          │
-                    │    question       │    │    │ FK sponsor_id ────│────► members
-                    │    result         │    │    │    policy_area    │
-                    │ FK bill_id ───────│────┘    │    status         │
-                    │    yea/nay/etc    │         │    latest_action  │
-                    └───────────────────┘         └─────────┬─────────┘
-                                                            │
-                                                            ▼
-                                                  ┌───────────────────┐
-                                                  │   bill_actions    │
-                                                  ├───────────────────┤
-                                                  │ PK bill_id ───────│───► bills
-                                                  │ PK sequence       │
-                                                  │    action_date    │
-                                                  │    action_text    │
-                                                  │    action_type    │
-                                                  └───────────────────┘
-
-
-┌───────────────────┐
-│    committees     │  (standalone - future joins to members/bills)
-├───────────────────┤
-│ PK committee_id   │
-│    name           │
-│    chamber        │
-│    committee_type │
-│ FK parent_id ─────│───► committees (self-ref for subcommittees)
-└───────────────────┘
+                                          │                                       │
+         ┌──────────────┬─────────────────┼──────────────────┬──────────┐         │
+         │              │                 │                  │          │         │
+         ▼              ▼                 ▼                  ▼          ▼         │
+┌─────────────┐ ┌─────────────┐ ┌─────────────────┐ ┌────────────┐ ┌──────────┐│
+│   trades    │ │member_votes │ │ bill_cosponsors  │ │ committee  │ │   zip    ││
+├─────────────┤ ├─────────────┤ ├─────────────────┤ │ _members   │ │_districts││
+│PK trade_id  │ │PK vote_id ──│─┐│PK bill_id ─────│┐├────────────┤ ├──────────┤│
+│FK bioguide  │ │PK bioguide  │ ││PK bioguide ────│┘│PK committee│ │PK zcta   ││
+│   ticker    │ │   position  │ ││   cosponsor_dt  │ │PK bioguide │ │PK state  ││
+│   amount_*  │ └─────────────┘ │└─────────────────┘ │   role     │ │PK dist   ││
+│   owner     │                 │                    └─────┬──────┘ └──────────┘│
+│   ptr_link  │                 │                          │                    │
+└─────────────┘                 │                          ▼                    │
+                                │                 ┌─────────────────┐           │
+                                │                 │   committees    │           │
+                                │                 ├─────────────────┤           │
+                                │                 │PK committee_id  │           │
+                                │                 │   name          │           │
+                                │                 │   chamber       │           │
+                                │                 │   committee_type│           │
+                                │                 │FK parent_id ────│──► self   │
+                                │                 │   url           │           │
+                                │                 └─────────────────┘           │
+                                │                                               │
+                  ┌─────────────┘                                               │
+                  │                                                             │
+                  ▼                                                             │
+        ┌───────────────────┐         ┌───────────────────┐                    │
+        │      votes        │         │      bills        │◄───────────────────┘
+        ├───────────────────┤         ├───────────────────┤
+        │ PK vote_id        │         │ PK bill_id        │
+        │    congress       │    ┌───▶│    congress       │
+        │    chamber        │    │    │    bill_type      │
+        │    roll_call      │    │    │    title          │
+        │    vote_date      │    │    │    short_title    │
+        │    question       │    │    │ FK sponsor_id ────│────► members
+        │    result         │    │    │    policy_area    │
+        │ FK bill_id ───────│────┘    │    status         │
+        │    yea/nay/etc    │         │    summary        │
+        └───────────────────┘         │    full_text_url  │
+                                      └─────────┬────┬────┘
+                                                │    │
+                                                ▼    ▼
+                                   ┌──────────────┐ ┌──────────────┐
+                                   │ bill_actions  │ │bill_subjects │
+                                   ├──────────────┤ ├──────────────┤
+                                   │PK bill_id    │ │PK bill_id    │
+                                   │PK sequence   │ │PK subject    │
+                                   │  action_date │ └──────────────┘
+                                   │  action_text │
+                                   │  action_type │
+                                   └──────────────┘
 ```
 
 ---
@@ -199,7 +241,7 @@ The central entity. All current and historical members of Congress.
 | `last_name` | TEXT | Last name |
 | `full_name` | TEXT | Full display name |
 | `party` | TEXT | 'D', 'R', 'I' |
-| `state` | TEXT | Full state name |
+| `state` | TEXT | 2-letter state abbreviation |
 | `district` | INTEGER | House district (NULL for senators) |
 | `chamber` | TEXT | 'house' or 'senate' |
 | `is_current` | BOOLEAN | Currently serving |
@@ -207,8 +249,12 @@ The central entity. All current and historical members of Congress.
 | `official_url` | TEXT | Member's website |
 | `phone` | TEXT | DC office phone |
 | `office_address` | TEXT | DC office address |
+| `contact_form` | TEXT | URL for online contact form |
 | `leadership_role` | TEXT | Speaker, Majority Leader, etc. |
 | `start_date` | DATE | Start of current term |
+| `twitter` | TEXT | Twitter/X handle |
+| `facebook` | TEXT | Facebook account ID |
+| `youtube` | TEXT | YouTube channel |
 | `updated_at` | TIMESTAMP | Last sync |
 
 **Relationships:**
@@ -216,6 +262,7 @@ The central entity. All current and historical members of Congress.
 - → `bill_cosponsors.bioguide_id` (many cosponsors per bill)
 - → `member_votes.bioguide_id` (voting record)
 - → `trades.bioguide_id` (financial disclosures)
+- → `committee_members.bioguide_id` (committee assignments)
 
 ---
 
@@ -245,6 +292,7 @@ Legislation: bills, resolutions, joint resolutions.
 - ← `members.bioguide_id` via `sponsor_id`
 - → `bill_cosponsors` (many-to-many with members)
 - → `bill_actions` (timeline)
+- → `bill_subjects` (legislative subject tags)
 - ← `votes.bill_id` (roll calls on this bill)
 
 ---
@@ -284,7 +332,7 @@ Junction table: how each member voted on each roll call.
 |--------|------|-------------|
 | `vote_id` | TEXT PK | → votes |
 | `bioguide_id` | TEXT PK | → members |
-| `position` | TEXT | 'Yes', 'No', 'Present', 'Not Voting' |
+| `position` | TEXT | 'Yes', 'Yea', 'No', 'Nay', 'Present', 'Not Voting' |
 
 **Relationships:**
 - ← `votes.vote_id`
@@ -350,8 +398,21 @@ Timeline of actions on a bill.
 
 ---
 
+### bill_subjects
+Legislative subject tags for bills (many-to-many).
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `bill_id` | TEXT PK | → bills |
+| `subject` | TEXT PK | Legislative subject tag (e.g., "Healthcare", "Taxation") |
+
+**Relationships:**
+- ← `bills.bill_id`
+
+---
+
 ### committees
-Congressional committees.
+Congressional committees and subcommittees.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -364,6 +425,37 @@ Congressional committees.
 
 **Relationships:**
 - Self-referential via `parent_id` for subcommittees
+- → `committee_members` (membership roster)
+
+---
+
+### committee_members
+Junction table: members serving on committees.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `committee_id` | TEXT PK | → committees |
+| `bioguide_id` | TEXT PK | → members |
+| `role` | TEXT | 'Chair', 'Ranking Member', 'Vice Chair', 'Member' |
+
+**Relationships:**
+- ← `committees.committee_id`
+- ← `members.bioguide_id`
+
+---
+
+### zip_districts
+Zip code to congressional district mapping.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `zcta` | TEXT PK | 5-digit ZIP Code Tabulation Area |
+| `state` | TEXT PK | 2-letter state abbreviation |
+| `district` | INTEGER PK | Congressional district number (0 = at-large) |
+
+**Notes:**
+- A single zip code can span multiple districts (composite PK)
+- Used by `/api/members/by-zip/{zip}` and `/api/activity/recent?zip_code=`
 
 ---
 
@@ -381,175 +473,66 @@ Legislative activity follows these cycles:
 
 ---
 
-## Analytics Approach
+## Analytics Architecture (dbt)
 
-**Principle:** Store facts at natural grain. Compute dimensions. Query for rollups.
+Raw tables are transformed through a three-layer dbt pipeline:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     ANALYTICS ARCHITECTURE                       │
+│                       dbt MODEL LAYERS                          │
 └─────────────────────────────────────────────────────────────────┘
 
-  Base Tables              Fact Tables              Views
-  (source data)            (enriched)               (rollups)
+  Raw Tables              Staging (stg_*)           Intermediate (int_*)
+  (schema.sql)            (clean + type)            (shared logic)
 
-  ┌─────────┐            ┌─────────────┐         ┌─────────────────┐
-  │ members │───────────▶│ member_facts│────────▶│ v_member_scores │
-  └─────────┘            └─────────────┘         └─────────────────┘
+  members ──────────────▶ stg_members ─────┐
+  bills ────────────────▶ stg_bills ───────┤
+  votes ────────────────▶ stg_votes ───────┼──▶ int_party_vote_majority
+  member_votes ─────────▶ stg_member_votes─┤
+  bill_cosponsors ──────▶ stg_bill_cosponsors
+  bill_actions ─────────▶ stg_bill_actions─┤
+  bill_subjects ────────▶ stg_bill_subjects┤
+  trades ───────────────▶ stg_trades ──────┤
+  committees ───────────▶ stg_committees ──┤
+  committee_members ────▶ stg_committee_members
+  zip_districts ────────▶ stg_zip_districts┘
 
-  ┌─────────┐            ┌─────────────┐         ┌─────────────────┐
-  │  bills  │───────────▶│ bill_facts  │────────▶│ v_congress_stats│
-  └─────────┘            └─────────────┘         │ v_monthly_activity
-                                                 │ v_policy_breakdown│
-                                                 └─────────────────┘
+                                      │
+                                      ▼
+                          Marts (fct_* + agg_*)
 
-  ┌─────────┐            ┌─────────────┐         ┌─────────────────┐
-  │  votes  │───────────▶│ vote_facts  │────────▶│ v_vote_patterns │
-  └─────────┘            └─────────────┘         └─────────────────┘
-
-  ┌─────────┐            ┌─────────────┐         ┌─────────────────┐
-  │ trades  │───────────▶│ trade_facts │────────▶│ v_trading_activity│
-  └─────────┘            └─────────────┘         └─────────────────┘
+                          ┌──────────────────┐
+                          │    fct_bills     │  Enriched bills: sponsor info,
+                          │    fct_members   │  time dims, cosponsor stats,
+                          └──────┬───────────┘  voting metrics, activity score
+                                 │
+                          ┌──────┴───────────┐
+                          │  agg_* rollups   │  Congress summary, policy
+                          │  (9 models)      │  breakdown, member scorecard,
+                          └──────────────────┘  chamber/party comparisons
 ```
 
----
+### Fact Models
 
-## Fact Tables
+**`fct_bills`** — Enriched bills with denormalized sponsor info, cosponsor counts (total, D, R), time dimensions (fiscal year), and status flags (is_bipartisan, is_enacted, is_stale).
 
-### bill_facts
-Enriched bills with computed time dimensions and flags.
+**`fct_members`** — Enriched members with sponsorship stats (bills_sponsored, success_rate), voting stats (attendance_rate, party_loyalty_pct), and a composite activity_score (0-100).
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `bill_id` | TEXT PK | → bills |
-| `congress` | INTEGER | Congress number |
-| `bill_type` | TEXT | hr, s, hjres, etc. |
-| `introduced_date` | DATE | Original introduction date |
-| `latest_action_date` | DATE | Most recent activity |
-| `status` | TEXT | Current status |
-| `sponsor_id` | TEXT FK | → members |
-| `sponsor_party` | TEXT | Sponsor's party (D/R/I) |
-| `policy_area` | TEXT | Policy category |
-| `origin_chamber` | TEXT | house or senate |
-| | | |
-| *Time Dimensions* | | |
-| `introduced_week` | DATE | Week of introduction |
-| `introduced_month` | DATE | Month of introduction |
-| `introduced_quarter` | DATE | Quarter of introduction |
-| `fiscal_year` | INTEGER | Federal fiscal year (Oct-Sep) |
-| `session` | INTEGER | Congressional session (1 or 2) |
-| | | |
-| *Computed Metrics* | | |
-| `days_since_introduced` | INTEGER | Age of bill |
-| `days_active` | INTEGER | Days between intro and last action |
-| | | |
-| *Status Flags* | | |
-| `is_enacted` | BOOLEAN | Became law |
-| `is_stuck` | BOOLEAN | No action in 90+ days |
-| `is_bipartisan` | BOOLEAN | Has cross-party cosponsors |
+See `dbt_distillgov/models/marts/_marts.yml` for full column documentation.
 
-### member_facts
-Enriched members with computed stats.
+### Aggregation Models
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `bioguide_id` | TEXT PK | → members |
-| `full_name` | TEXT | Display name |
-| `party` | TEXT | D, R, I |
-| `state` | TEXT | State |
-| `chamber` | TEXT | house or senate |
-| | | |
-| *Sponsorship Stats* | | |
-| `bills_sponsored` | INTEGER | Total bills sponsored |
-| `bills_enacted` | INTEGER | Sponsored bills that became law |
-| `sponsor_success_rate` | DECIMAL | % of sponsored bills enacted |
-| | | |
-| *Voting Stats* | | (requires vote data) |
-| `votes_cast` | INTEGER | Total votes participated |
-| `votes_missed` | INTEGER | Votes missed |
-| `attendance_rate` | DECIMAL | % attendance |
-| `party_loyalty_rate` | DECIMAL | % votes with party majority |
-| | | |
-| *Trading Stats* | | (requires trade data) |
-| `disclosure_count` | INTEGER | PTR filings |
-| `total_trades` | INTEGER | Individual transactions |
-| `estimated_value` | INTEGER | Midpoint of ranges |
-
-### vote_facts
-Enriched votes with computed dimensions. *(When vote data available)*
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `vote_id` | TEXT PK | → votes |
-| `vote_date` | DATE | Date of vote |
-| `vote_week` | DATE | Week |
-| `vote_month` | DATE | Month |
-| `congress` | INTEGER | Congress number |
-| `chamber` | TEXT | house or senate |
-| `result` | TEXT | Passed, Failed |
-| `bill_id` | TEXT FK | Related bill |
-| `margin` | INTEGER | Yea - Nay |
-| `is_close` | BOOLEAN | Margin < 10 |
-| `is_bipartisan` | BOOLEAN | Significant cross-party support |
-| `is_party_line` | BOOLEAN | >90% party alignment |
-
-### trade_facts
-Enriched trades with computed dimensions. *(When trade data available)*
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `trade_id` | TEXT PK | → trades |
-| `bioguide_id` | TEXT FK | → members |
-| `transaction_date` | DATE | Trade date |
-| `transaction_week` | DATE | Week |
-| `transaction_month` | DATE | Month |
-| `transaction_quarter` | DATE | Quarter |
-| `ticker` | TEXT | Stock symbol |
-| `trade_type` | TEXT | Purchase, Sale |
-| `amount_midpoint` | INTEGER | (low + high) / 2 |
-| `member_party` | TEXT | Trader's party |
-| `member_chamber` | TEXT | Trader's chamber |
-
----
-
-## Views
-
-Views provide rollups at query time. No data duplication.
-
-### v_congress_summary
-High-level stats per Congress.
-
-```sql
-SELECT congress, total_bills, enacted, in_committee, enactment_rate
-```
-
-### v_monthly_activity
-Bill activity by month.
-
-```sql
-SELECT month, bills_introduced, bills_enacted, bills_passed_house, bills_passed_senate
-```
-
-### v_policy_breakdown
-Bills by policy area.
-
-```sql
-SELECT policy_area, total, enacted, enactment_rate
-```
-
-### v_member_scorecard
-Member performance metrics.
-
-```sql
-SELECT bioguide_id, name, party, bills_sponsored, bills_enacted, success_rate
-```
-
-### v_chamber_comparison
-House vs Senate activity.
-
-```sql
-SELECT chamber, total_bills, enacted, avg_days_to_passage
-```
+| Model | Description |
+|-------|-------------|
+| `agg_congress_summary` | Congress-level bill aggregations |
+| `agg_monthly_activity` | Monthly bill introduction and enactment counts |
+| `agg_quarterly_activity` | Quarterly activity with enactment rates |
+| `agg_policy_breakdown` | Bills grouped by policy area |
+| `agg_chamber_comparison` | House vs Senate bill statistics |
+| `agg_party_breakdown` | Democratic vs Republican sponsorship stats |
+| `agg_member_scorecard` | Current member rankings by legislative activity |
+| `agg_bill_type_breakdown` | Bill counts by type (HR, S, HJRES, etc.) |
+| `agg_fiscal_year_summary` | Fiscal year trends for bill activity |
 
 ---
 
@@ -561,15 +544,31 @@ idx_members_state, idx_members_chamber, idx_members_party, idx_members_current
 
 -- Bills
 idx_bills_congress, idx_bills_sponsor, idx_bills_status, idx_bills_policy_area
+idx_bills_latest_action_date, idx_bills_introduced_date
 
 -- Votes
 idx_votes_date, idx_votes_chamber, idx_votes_bill
 
 -- Member Votes
-idx_member_votes_member
+idx_member_votes_member, idx_member_votes_vote
+
+-- Bill Cosponsors
+idx_cosponsors_member
+
+-- Bill Actions
+idx_actions_bill
+
+-- Bill Subjects
+idx_bill_subjects_subject, idx_bill_subjects_bill
 
 -- Trades
-idx_trades_member, idx_trades_ticker, idx_trades_date
+idx_trades_member, idx_trades_ticker, idx_trades_date, idx_trades_disclosure_date
+
+-- Zip Districts
+idx_zip_districts_zcta
+
+-- Committee Members
+idx_committee_members_member
 ```
 
 ---
@@ -579,13 +578,18 @@ idx_trades_member, idx_trades_ticker, idx_trades_date
 | Table | Source | Sync Command | Notes |
 |-------|--------|--------------|-------|
 | members | Congress.gov API | `sync members` | Fast (~1 min) |
+| members (enriched) | YAML (congress-legislators) | `sync enrich-members` | Phone, address, social media |
 | bills | Congress.gov API | `sync bills` | Fast (~2 min) |
 | bill_cosponsors | Congress.gov API | `sync cosponsors` | Slow (~30 min, 1 call/bill) |
 | bill_actions | Congress.gov API | `sync actions` | Slow (~30 min, 1 call/bill) |
-| votes | Congress.gov API | `sync votes` | Medium (~5 min, House only) |
-| member_votes | Congress.gov API | `sync member-votes` | Medium (~10 min, 1 call/vote) |
-| trades | CapitolGains | `sync trades` | Slow (~30 min, scrapes PDFs) |
-| committees | Congress.gov API | - | Not implemented |
+| bill_subjects | Congress.gov API | `sync subjects` | Slow (~30 min, 1 call/bill) |
+| votes (House) | Congress.gov API | `sync votes` | Medium (~5 min) |
+| member_votes (House) | Congress.gov API | `sync member-votes` | Medium (~10 min, 1 call/vote) |
+| votes (Senate) | senate.gov XML | `sync senate-votes` | Fast (~1 min) |
+| member_votes (Senate) | senate.gov XML | `sync senate-member-votes` | Fast (~1 min) |
+| committees + committee_members | Congress.gov API | `sync committees` | Fast (~2 min) |
+| zip_districts | Static CSV | `sync load-zips` | One-time load (~42K rows) |
+| trades | House/Senate disclosures | `sync trades` | Via CapitolGains |
 
 ---
 
@@ -596,28 +600,25 @@ idx_trades_member, idx_trades_ticker, idx_trades_date
 Dependencies require this order:
 
 ```
-1. members          (no dependencies)
-2. bills            (no dependencies)
-3. cosponsors       (requires: bills, members)
-4. actions          (requires: bills)
-5. votes            (no dependencies)
-6. member-votes     (requires: votes, members)
-7. rebuild-facts    (requires: all above)
+1. members              (no dependencies)
+2. enrich-members       (requires: members)
+3. bills                (no dependencies)
+4. cosponsors           (requires: bills, members)
+5. actions              (requires: bills)
+6. subjects             (requires: bills)
+7. summaries            (requires: bills)
+8. votes                (no dependencies)
+9. member-votes         (requires: votes, members)
+10. senate-votes        (no dependencies)
+11. senate-member-votes (requires: senate-votes, members)
+12. committees          (requires: members)
+13. load-zips           (no dependencies)
+14. dbt run             (requires: all above)
 ```
 
-### Recommended Schedule
-
-| Sync | Frequency | Reason |
-|------|-----------|--------|
-| members | Daily | Members rarely change |
-| bills | Every 6 hours | New bills introduced frequently |
-| cosponsors | Daily | Cosponsors added over time |
-| actions | Daily | Actions happen throughout day |
-| votes | Every 6 hours | Votes happen during session |
-| member-votes | Daily | Tied to votes |
-| rebuild-facts | After each sync batch | Refresh analytics |
+`sync all` runs steps 1-13 in the correct order.
 
 ### API Limits
 
-- Congress.gov: 5,000 requests/hour (plenty for our needs)
-- CapitolGains: No explicit limit, but slow (uses Playwright)
+- Congress.gov: 5,000 requests/hour
+- senate.gov: No explicit limit (public XML)
