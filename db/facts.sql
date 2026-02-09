@@ -116,7 +116,7 @@ SELECT
 
     -- Placeholder for future stats (when data available)
     -- Voting stats
-    NULL::INTEGER AS votes_cast,
+    NULL::INTEGER AS total_roll_calls,
     NULL::INTEGER AS votes_missed,
     NULL::DECIMAL AS attendance_rate,
     NULL::DECIMAL AS party_loyalty_rate,

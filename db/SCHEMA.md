@@ -465,7 +465,7 @@ Enriched members with computed stats.
 | `sponsor_success_rate` | DECIMAL | % of sponsored bills enacted |
 | | | |
 | *Voting Stats* | | (requires vote data) |
-| `votes_cast` | INTEGER | Total votes participated |
+| `total_roll_calls` | INTEGER | Total roll call entries (including Not Voting) |
 | `votes_missed` | INTEGER | Votes missed |
 | `attendance_rate` | DECIMAL | % attendance |
 | `party_loyalty_rate` | DECIMAL | % votes with party majority |

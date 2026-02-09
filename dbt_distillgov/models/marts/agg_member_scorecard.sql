@@ -8,7 +8,7 @@ select
     bills_enacted,
     bills_passed,
     sponsor_success_rate,
-    votes_cast,
+    total_roll_calls,
     votes_missed,
     attendance_rate,
     party_loyalty_pct,

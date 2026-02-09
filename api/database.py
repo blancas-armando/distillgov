@@ -9,19 +9,21 @@ from typing import Generator
 from config import DB_PATH
 
 
+_conn: duckdb.DuckDBPyConnection | None = None
+
+
 def get_connection() -> duckdb.DuckDBPyConnection:
-    """Get a read-only database connection."""
-    return duckdb.connect(str(DB_PATH), read_only=True)
+    """Get a shared read-only database connection (singleton)."""
+    global _conn
+    if _conn is None:
+        _conn = duckdb.connect(str(DB_PATH), read_only=True)
+    return _conn
 
 
 @contextmanager
 def get_db() -> Generator[duckdb.DuckDBPyConnection, None, None]:
-    """Context manager for database connections."""
-    conn = get_connection()
-    try:
-        yield conn
-    finally:
-        conn.close()
+    """Context manager for the shared database connection."""
+    yield get_connection()
 
 
 def escape_like(value: str) -> str:

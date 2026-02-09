@@ -33,6 +33,7 @@ ranked as (
         party,
         position as majority_position,
         cnt,
+        sum(cnt) over (partition by vote_id, party) as total,
         row_number() over (partition by vote_id, party order by cnt desc) as rn
     from position_counts
 )
@@ -43,3 +44,4 @@ select
     majority_position
 from ranked
 where rn = 1
+  and cnt * 2 > total  -- Exclude exact 50/50 ties (no meaningful majority)
