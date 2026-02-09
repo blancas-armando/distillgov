@@ -80,8 +80,13 @@ def list_committees(
             f"""
             SELECT c.committee_id, c.name, c.chamber, c.committee_type,
                    c.parent_id, c.url,
-                   (SELECT count(*) FROM committee_members cm WHERE cm.committee_id = c.committee_id) as member_count
+                   coalesce(cm_counts.member_count, 0) as member_count
             FROM committees c
+            LEFT JOIN (
+                SELECT committee_id, count(*) as member_count
+                FROM committee_members
+                GROUP BY committee_id
+            ) cm_counts ON cm_counts.committee_id = c.committee_id
             {where}
             ORDER BY c.name
             LIMIT ? OFFSET ?

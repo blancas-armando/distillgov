@@ -133,10 +133,10 @@ def recent_activity(
                    v.bill_id, v.vote_id, v.chamber, b.policy_area, v.result
             FROM votes v
             LEFT JOIN bills b ON v.bill_id = b.bill_id
-            {"JOIN bill_subjects bs ON b.bill_id = bs.bill_id" if subject else ""}
+            {subject_join}
             WHERE v.vote_date >= current_date - interval '{days} days'
             {subject_condition}
-            {policy_condition.replace("b.policy_area", "b.policy_area") if policy_area else ""}
+            {policy_condition}
             {chamber_condition.replace("chamber", "v.chamber")}
             {member_vote_condition}
         """

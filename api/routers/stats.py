@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from api.database import get_db
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -150,8 +154,9 @@ def member_scorecard(
                 """,
                 params + [limit, offset],
             ).fetchall()
-        except Exception:
-            raise HTTPException(status_code=503, detail="Scorecard not available — run dbt first")
+        except Exception as exc:
+            logger.exception("Failed to query agg_member_scorecard")
+            raise HTTPException(status_code=503, detail="Scorecard not available — run dbt first") from exc
 
         return [
             MemberScorecard(
@@ -169,18 +174,30 @@ def member_scorecard(
 # ---------------------------------------------------------------------------
 
 
+_ALLOWED_AGG_TABLES = {
+    "agg_congress_summary",
+    "agg_policy_breakdown",
+    "agg_chamber_comparison",
+    "agg_party_breakdown",
+    "agg_member_scorecard",
+}
+
+
 def _query_agg(table: str, model: type, where: str = "", params: list | None = None):
     """Generic helper to query an aggregate view and return Pydantic models."""
+    if table not in _ALLOWED_AGG_TABLES:
+        raise ValueError(f"Unknown aggregate table: {table}")
     with get_db() as conn:
         try:
             rows = conn.execute(
                 f"SELECT * FROM {table} {where}", params or []
             ).fetchall()
             columns = [desc[0] for desc in conn.description]
-        except Exception:
+        except Exception as exc:
+            logger.exception("Failed to query %s", table)
             raise HTTPException(
                 status_code=503,
                 detail=f"{table} not available — run dbt first",
-            )
+            ) from exc
 
     return [model(**dict(zip(columns, row))) for row in rows]

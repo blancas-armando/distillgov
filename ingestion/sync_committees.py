@@ -38,15 +38,14 @@ def sync_committees(congress: int = 118):
 
         console.print(f"Found {len(committees)} committees")
 
-    if not committees:
-        return
+        if not committees:
+            return
 
-    conn = duckdb.connect(str(DB_PATH))
+        conn = duckdb.connect(str(DB_PATH))
 
-    committees_inserted = 0
-    members_inserted = 0
+        committees_inserted = 0
+        members_inserted = 0
 
-    with CongressClient() as client:
         for committee in track(committees, description="Loading committees..."):
             name = committee.get("name", "")
             chamber = committee.get("chamber", "")
@@ -71,22 +70,14 @@ def sync_committees(congress: int = 118):
             )
             committees_inserted += 1
 
-            # Fetch committee detail which may include current members
-            # The committee list response might include a subcommittees field
-            # but not members — we need the detail endpoint
+            # Fetch committee detail for member list (not in list endpoint)
             try:
                 chamber_code = chamber.lower() if chamber else "house"
-                # Extract the base code (e.g., "hsag" from "hsag00")
                 detail = client.get_committee(congress, chamber_code, system_code)
                 committee_data = detail.get("committee", {})
 
-                # Check for committee membership in the response
-                # Congress.gov might return members under "committeeBills" or
-                # we may need to look at a different structure
-                # The detail response structure varies — extract what we can
                 current_members = committee_data.get("currentMembers", [])
                 if not current_members:
-                    # Some responses nest under "subcommittees" etc.
                     current_members = committee_data.get("members", [])
 
                 for member in current_members:
@@ -110,5 +101,5 @@ def sync_committees(congress: int = 118):
                 console.print(f"[dim]  {system_code}: {e}[/dim]")
                 continue
 
-    conn.close()
-    console.print(f"[green]Inserted {committees_inserted} committees, {members_inserted} memberships[/green]")
+        conn.close()
+        console.print(f"[green]Inserted {committees_inserted} committees, {members_inserted} memberships[/green]")

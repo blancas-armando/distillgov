@@ -55,7 +55,7 @@ SELECT
 
     -- Status flags
     b.status = 'enacted' AS is_enacted,
-    b.status IN ('passed_house', 'passed_senate', 'passed_both') AS is_passed,
+    b.status IN ('passed_house', 'passed_senate') AS is_passed,
     b.status = 'in_committee' AS is_in_committee,
     b.status = 'introduced' AS is_new,
 
@@ -80,7 +80,7 @@ WITH sponsorship_stats AS (
         sponsor_id,
         COUNT(*) AS bills_sponsored,
         COUNT(*) FILTER (WHERE status = 'enacted') AS bills_enacted,
-        COUNT(*) FILTER (WHERE status IN ('passed_house', 'passed_senate', 'passed_both', 'enacted')) AS bills_passed
+        COUNT(*) FILTER (WHERE status IN ('passed_house', 'passed_senate', 'enacted')) AS bills_passed
     FROM bills
     WHERE sponsor_id IS NOT NULL
     GROUP BY sponsor_id

@@ -10,7 +10,13 @@ select
     is_current,
     image_url,
     official_url,
+    phone,
+    office_address,
+    contact_form,
     leadership_role,
     start_date,
+    twitter,
+    facebook,
+    youtube,
     updated_at
 from {{ source('raw', 'members') }}

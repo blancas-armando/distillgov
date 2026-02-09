@@ -7,7 +7,6 @@ from pathlib import Path
 import duckdb
 import yaml
 from rich.console import Console
-from rich.progress import track
 
 from config import DB_PATH
 
@@ -100,36 +99,38 @@ def enrich_members():
     conn = duckdb.connect(str(DB_PATH))
     members = conn.execute("SELECT bioguide_id FROM members WHERE is_current = TRUE").fetchall()
 
-    updated = 0
-    for (bioguide_id,) in track(members, description="Updating members..."):
+    # Build batch of update parameters
+    update_params = []
+    for (bioguide_id,) in members:
         contact = contact_by_id.get(bioguide_id, {})
         social = social_by_id.get(bioguide_id, {})
 
         if not contact and not social:
             continue
 
-        conn.execute(
-            """
-            UPDATE members SET
-                phone = coalesce(?, phone),
-                office_address = coalesce(?, office_address),
-                contact_form = coalesce(?, contact_form),
-                twitter = coalesce(?, twitter),
-                facebook = coalesce(?, facebook),
-                youtube = coalesce(?, youtube)
-            WHERE bioguide_id = ?
-            """,
-            [
-                contact.get("phone"),
-                contact.get("office_address"),
-                contact.get("contact_form"),
-                social.get("twitter"),
-                social.get("facebook"),
-                social.get("youtube"),
-                bioguide_id,
-            ]
-        )
-        updated += 1
+        update_params.append([
+            contact.get("phone"),
+            contact.get("office_address"),
+            contact.get("contact_form"),
+            social.get("twitter"),
+            social.get("facebook"),
+            social.get("youtube"),
+            bioguide_id,
+        ])
+
+    conn.executemany(
+        """
+        UPDATE members SET
+            phone = coalesce(?, phone),
+            office_address = coalesce(?, office_address),
+            contact_form = coalesce(?, contact_form),
+            twitter = coalesce(?, twitter),
+            facebook = coalesce(?, facebook),
+            youtube = coalesce(?, youtube)
+        WHERE bioguide_id = ?
+        """,
+        update_params,
+    )
 
     conn.close()
-    console.print(f"[green]Enriched {updated} members with contact + social data[/green]")
+    console.print(f"[green]Enriched {len(update_params)} members with contact + social data[/green]")

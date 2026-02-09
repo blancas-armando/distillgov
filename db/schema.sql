@@ -154,6 +154,8 @@ CREATE INDEX IF NOT EXISTS idx_bills_congress ON bills(congress);
 CREATE INDEX IF NOT EXISTS idx_bills_sponsor ON bills(sponsor_id);
 CREATE INDEX IF NOT EXISTS idx_bills_status ON bills(status);
 CREATE INDEX IF NOT EXISTS idx_bills_policy_area ON bills(policy_area);
+CREATE INDEX IF NOT EXISTS idx_bills_latest_action_date ON bills(latest_action_date);
+CREATE INDEX IF NOT EXISTS idx_bills_introduced_date ON bills(introduced_date);
 
 CREATE INDEX IF NOT EXISTS idx_votes_date ON votes(vote_date);
 CREATE INDEX IF NOT EXISTS idx_votes_chamber ON votes(chamber);
@@ -168,6 +170,7 @@ CREATE INDEX IF NOT EXISTS idx_actions_bill ON bill_actions(bill_id);
 CREATE INDEX IF NOT EXISTS idx_trades_member ON trades(bioguide_id);
 CREATE INDEX IF NOT EXISTS idx_trades_ticker ON trades(ticker);
 CREATE INDEX IF NOT EXISTS idx_trades_date ON trades(transaction_date);
+CREATE INDEX IF NOT EXISTS idx_trades_disclosure_date ON trades(disclosure_date);
 
 CREATE INDEX IF NOT EXISTS idx_zip_districts_zcta ON zip_districts(zcta);
 

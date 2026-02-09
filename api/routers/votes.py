@@ -7,7 +7,7 @@ from datetime import date
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from api.database import get_db
+from api.database import PASSAGE_VOTE_FILTER, get_db
 
 router = APIRouter()
 
@@ -104,12 +104,7 @@ def list_votes(
             conditions.append("bill_id = ?")
             params.append(bill_id)
         if passage_only:
-            conditions.append(
-                "(question ILIKE '%passage%' OR question ILIKE '%pass%' "
-                "OR question ILIKE '%conference report%' OR question ILIKE '%override%' "
-                "OR question ILIKE '%concur%' OR question ILIKE '%adopt%' "
-                "OR question ILIKE '%ratif%')"
-            )
+            conditions.append(PASSAGE_VOTE_FILTER)
 
         where = " AND ".join(conditions) if conditions else "1=1"
 

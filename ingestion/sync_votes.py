@@ -12,6 +12,7 @@ from rich.progress import track
 
 from config import DB_PATH
 from ingestion.client import CongressClient
+from ingestion.constants import check_consecutive_errors
 from ingestion.senate_client import SenateClient
 
 console = Console()
@@ -250,6 +251,7 @@ def sync_member_votes(congress: int, votes: list[dict] | None = None, limit: int
     console.print(f"\n[blue]Fetching House member positions for {len(votes)} votes...[/blue]")
 
     inserted = 0
+    consecutive_errors = 0
     with CongressClient() as client:
         for vote in track(votes, description="Fetching member votes..."):
             roll_call = vote.get("rollCallNumber")
@@ -282,8 +284,11 @@ def sync_member_votes(congress: int, votes: list[dict] | None = None, limit: int
                     )
                     inserted += 1
 
+                consecutive_errors = 0
             except Exception as e:
+                consecutive_errors += 1
                 console.print(f"[dim]  Vote {roll_call}: {e}[/dim]")
+                check_consecutive_errors(consecutive_errors, e)
                 continue
 
     conn.close()

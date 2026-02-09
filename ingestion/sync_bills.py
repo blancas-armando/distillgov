@@ -10,6 +10,7 @@ from rich.progress import track
 
 from config import DB_PATH
 from ingestion.client import CongressClient
+from ingestion.constants import check_consecutive_errors
 
 console = Console()
 
@@ -44,11 +45,6 @@ def sync_bills(congress: int = 118, bill_types: list[str] | None = None, with_de
 
                 bills.extend(batch)
                 offset += len(batch)
-
-                # Limit for initial sync (remove for full sync)
-                if offset >= 500:
-                    console.print(f"    [dim]Limited to 500 {bill_type.upper()} bills[/dim]")
-                    break
 
                 if offset >= response.get("pagination", {}).get("count", 0):
                     break
@@ -216,17 +212,16 @@ def sync_cosponsors(congress: int = 118):
         "SELECT bill_id, bill_type, bill_number FROM bills WHERE congress = ?",
         [congress]
     ).fetchall()
-    conn.close()
 
     if not bills:
         console.print("[yellow]No bills found. Run 'sync bills' first.[/yellow]")
+        conn.close()
         return
 
     console.print(f"Found {len(bills)} bills")
-
-    conn = duckdb.connect(str(DB_PATH))
     inserted = 0
     sponsors_updated = 0
+    consecutive_errors = 0
 
     with CongressClient() as client:
         for bill_id, bill_type, bill_number in track(bills, description="Fetching cosponsors..."):
@@ -282,8 +277,11 @@ def sync_cosponsors(congress: int = 118):
                     )
                     inserted += 1
 
+                consecutive_errors = 0
             except Exception as e:
+                consecutive_errors += 1
                 console.print(f"[dim]  {bill_id}: {e}[/dim]")
+                check_consecutive_errors(consecutive_errors, e)
                 continue
 
     conn.close()
@@ -300,16 +298,15 @@ def sync_actions(congress: int = 118):
         "SELECT bill_id, bill_type, bill_number FROM bills WHERE congress = ?",
         [congress]
     ).fetchall()
-    conn.close()
 
     if not bills:
         console.print("[yellow]No bills found. Run 'sync bills' first.[/yellow]")
+        conn.close()
         return
 
     console.print(f"Found {len(bills)} bills")
-
-    conn = duckdb.connect(str(DB_PATH))
     inserted = 0
+    consecutive_errors = 0
 
     with CongressClient() as client:
         for bill_id, bill_type, bill_number in track(bills, description="Fetching actions..."):
@@ -344,8 +341,11 @@ def sync_actions(congress: int = 118):
                     )
                     inserted += 1
 
+                consecutive_errors = 0
             except Exception as e:
+                consecutive_errors += 1
                 console.print(f"[dim]  {bill_id}: {e}[/dim]")
+                check_consecutive_errors(consecutive_errors, e)
                 continue
 
     conn.close()
@@ -361,16 +361,15 @@ def sync_subjects(congress: int = 118):
         "SELECT bill_id, bill_type, bill_number FROM bills WHERE congress = ?",
         [congress]
     ).fetchall()
-    conn.close()
 
     if not bills:
         console.print("[yellow]No bills found. Run 'sync bills' first.[/yellow]")
+        conn.close()
         return
 
     console.print(f"Found {len(bills)} bills")
-
-    conn = duckdb.connect(str(DB_PATH))
     inserted = 0
+    consecutive_errors = 0
 
     with CongressClient() as client:
         for bill_id, bill_type, bill_number in track(bills, description="Fetching subjects..."):
@@ -378,7 +377,6 @@ def sync_subjects(congress: int = 118):
                 response = client.get_bill_subjects(congress, bill_type, bill_number)
                 subjects = response.get("subjects", {})
 
-                # Legislative subjects (many per bill)
                 for subj in subjects.get("legislativeSubjects", []):
                     name = subj.get("name")
                     if name:
@@ -388,7 +386,6 @@ def sync_subjects(congress: int = 118):
                         )
                         inserted += 1
 
-                # Policy area (update if missing from initial sync)
                 policy = subjects.get("policyArea", {})
                 if policy and policy.get("name"):
                     conn.execute(
@@ -396,8 +393,11 @@ def sync_subjects(congress: int = 118):
                         [policy["name"], bill_id]
                     )
 
+                consecutive_errors = 0
             except Exception as e:
+                consecutive_errors += 1
                 console.print(f"[dim]  {bill_id}: {e}[/dim]")
+                check_consecutive_errors(consecutive_errors, e)
                 continue
 
     conn.close()
@@ -413,26 +413,23 @@ def sync_summaries(congress: int = 118):
         "SELECT bill_id, bill_type, bill_number FROM bills WHERE congress = ?",
         [congress]
     ).fetchall()
-    conn.close()
 
     if not bills:
         console.print("[yellow]No bills found. Run 'sync bills' first.[/yellow]")
+        conn.close()
         return
 
     console.print(f"Found {len(bills)} bills")
-
-    conn = duckdb.connect(str(DB_PATH))
     summaries_updated = 0
     text_updated = 0
+    consecutive_errors = 0
 
     with CongressClient() as client:
         for bill_id, bill_type, bill_number in track(bills, description="Fetching summaries..."):
             try:
-                # Fetch summary
                 sum_response = client.get_bill_summaries(congress, bill_type, bill_number)
                 summaries = sum_response.get("summaries", [])
                 if summaries:
-                    # Use the most recent summary (last in list)
                     latest = summaries[-1]
                     text = latest.get("text", "")
                     if text:
@@ -443,14 +440,11 @@ def sync_summaries(congress: int = 118):
                         )
                         summaries_updated += 1
 
-                # Fetch text versions
                 text_response = client.get_bill_text(congress, bill_type, bill_number)
                 versions = text_response.get("textVersions", [])
                 if versions:
-                    # Use the most recent text version
                     latest_text = versions[-1]
                     formats = latest_text.get("formats", [])
-                    # Prefer PDF, fall back to HTML
                     url = None
                     for fmt in formats:
                         if fmt.get("type") == "Formatted Text (PDF)":
@@ -468,8 +462,11 @@ def sync_summaries(congress: int = 118):
                         )
                         text_updated += 1
 
+                consecutive_errors = 0
             except Exception as e:
+                consecutive_errors += 1
                 console.print(f"[dim]  {bill_id}: {e}[/dim]")
+                check_consecutive_errors(consecutive_errors, e)
                 continue
 
     conn.close()
@@ -487,8 +484,6 @@ def determine_status(action_text: str | None) -> str:
         return "enacted"
     elif "vetoed" in action_lower:
         return "vetoed"
-    elif "passed senate" in action_lower and "passed house" in action_lower:
-        return "passed_both"
     elif "passed senate" in action_lower:
         return "passed_senate"
     elif "passed house" in action_lower:

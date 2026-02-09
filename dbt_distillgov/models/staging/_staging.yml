@@ -38,13 +38,26 @@ models:
         tests:
           - unique
           - not_null
+      - name: chamber
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["house", "senate"]
 
   - name: stg_member_votes
     description: Staging layer for individual member voting positions
     columns:
+      - name: vote_id
+        tests:
+          - not_null
+      - name: bioguide_id
+        tests:
+          - not_null
       - name: position
         tests:
           - not_null
+          - accepted_values:
+              values: ["Yes", "No", "Yea", "Nay", "Present", "Not Voting"]
 
   - name: stg_bill_cosponsors
     description: Staging layer for bill cosponsor relationships
