@@ -75,3 +75,52 @@ models:
       - name: bill_id
         tests:
           - not_null
+
+  - name: stg_trades
+    description: Staging layer for member stock trade disclosures
+    columns:
+      - name: trade_id
+        tests:
+          - unique
+          - not_null
+
+  - name: stg_zip_districts
+    description: Staging layer for zip code to congressional district mappings
+    columns:
+      - name: zcta
+        tests:
+          - not_null
+      - name: state
+        tests:
+          - not_null
+      - name: district
+        tests:
+          - not_null
+
+  - name: stg_committees
+    description: Staging layer for congressional committees
+    columns:
+      - name: committee_id
+        tests:
+          - unique
+          - not_null
+
+  - name: stg_committee_members
+    description: Staging layer for committee membership assignments
+    columns:
+      - name: committee_id
+        tests:
+          - not_null
+      - name: bioguide_id
+        tests:
+          - not_null
+
+  - name: stg_bill_subjects
+    description: Staging layer for legislative subject tags
+    columns:
+      - name: bill_id
+        tests:
+          - not_null
+      - name: subject
+        tests:
+          - not_null

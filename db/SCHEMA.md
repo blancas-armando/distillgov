@@ -520,7 +520,84 @@ Raw tables are transformed through a three-layer dbt pipeline:
 
 See `dbt_distillgov/models/marts/_marts.yml` for full column documentation.
 
-### Aggregation Models
+| Column | Type | Description |
+|--------|------|-------------|
+| `bioguide_id` | TEXT PK | → members |
+| `full_name` | TEXT | Display name |
+| `party` | TEXT | D, R, I |
+| `state` | TEXT | State |
+| `chamber` | TEXT | house or senate |
+| | | |
+| *Sponsorship Stats* | | |
+| `bills_sponsored` | INTEGER | Total bills sponsored |
+| `bills_enacted` | INTEGER | Sponsored bills that became law |
+| `sponsor_success_rate` | DECIMAL | % of sponsored bills enacted |
+| | | |
+| *Voting Stats* | | (requires vote data) |
+| `total_roll_calls` | INTEGER | Total roll call entries (including Not Voting) |
+| `votes_missed` | INTEGER | Votes missed |
+| `attendance_rate` | DECIMAL | % attendance |
+| `party_loyalty_rate` | DECIMAL | % votes with party majority |
+| | | |
+| *Trading Stats* | | (requires trade data) |
+| `disclosure_count` | INTEGER | PTR filings |
+| `total_trades` | INTEGER | Individual transactions |
+| `estimated_value` | INTEGER | Midpoint of ranges |
+
+### vote_facts
+Enriched votes with computed dimensions. *(When vote data available)*
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `vote_id` | TEXT PK | → votes |
+| `vote_date` | DATE | Date of vote |
+| `vote_week` | DATE | Week |
+| `vote_month` | DATE | Month |
+| `congress` | INTEGER | Congress number |
+| `chamber` | TEXT | house or senate |
+| `result` | TEXT | Passed, Failed |
+| `bill_id` | TEXT FK | Related bill |
+| `margin` | INTEGER | Yea - Nay |
+| `is_close` | BOOLEAN | Margin < 10 |
+| `is_bipartisan` | BOOLEAN | Significant cross-party support |
+| `is_party_line` | BOOLEAN | >90% party alignment |
+
+### trade_facts
+Enriched trades with computed dimensions. *(When trade data available)*
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `trade_id` | TEXT PK | → trades |
+| `bioguide_id` | TEXT FK | → members |
+| `transaction_date` | DATE | Trade date |
+| `transaction_week` | DATE | Week |
+| `transaction_month` | DATE | Month |
+| `transaction_quarter` | DATE | Quarter |
+| `ticker` | TEXT | Stock symbol |
+| `trade_type` | TEXT | Purchase, Sale |
+| `amount_midpoint` | INTEGER | (low + high) / 2 |
+| `member_party` | TEXT | Trader's party |
+| `member_chamber` | TEXT | Trader's chamber |
+
+---
+
+## Views
+
+Views provide rollups at query time. No data duplication.
+
+### v_congress_summary
+High-level stats per Congress.
+
+```sql
+SELECT congress, total_bills, enacted, in_committee, enactment_rate
+```
+
+### v_monthly_activity
+Bill activity by month.
+
+```sql
+SELECT month, bills_introduced, bills_enacted, bills_passed_house, bills_passed_senate
+```
 
 | Model | Description |
 |-------|-------------|

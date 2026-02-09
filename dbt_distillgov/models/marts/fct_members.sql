@@ -16,7 +16,7 @@ with sponsorship_stats as (
 voting_stats as (
     select
         mv.bioguide_id,
-        count(*) as votes_cast,
+        count(*) as total_roll_calls,
         count(*) filter (where mv.position = 'Not Voting') as votes_missed,
         round(
             100.0 * count(*) filter (where mv.position != 'Not Voting') / nullif(count(*), 0),
@@ -69,7 +69,7 @@ base as (
             then round(100.0 * coalesce(s.bills_enacted, 0) / s.bills_sponsored, 1)
             else 0
         end as sponsor_success_rate,
-        coalesce(v.votes_cast, 0) as votes_cast,
+        coalesce(v.total_roll_calls, 0) as total_roll_calls,
         coalesce(v.votes_missed, 0) as votes_missed,
         v.attendance_rate,
         pl.party_loyalty_pct
@@ -86,7 +86,7 @@ select
     case when is_current then
         round((
             percent_rank() over (partition by is_current order by bills_sponsored) * 100
-            + percent_rank() over (partition by is_current order by votes_cast) * 100
+            + percent_rank() over (partition by is_current order by total_roll_calls) * 100
             + percent_rank() over (partition by is_current order by coalesce(attendance_rate, 0)) * 100
         ) / 3.0, 1)
     end as activity_score

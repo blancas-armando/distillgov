@@ -34,6 +34,7 @@ class ActivityFeed(BaseModel):
     total: int
     offset: int
     limit: int
+    next_cursor: date | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -49,6 +50,7 @@ def recent_activity(
     zip_code: str | None = Query(None, description="Filter by zip code (activity from your reps)"),
     chamber: str | None = Query(None, description="Filter by chamber: house, senate"),
     days: int = Query(30, ge=1, le=365, description="Look back this many days"),
+    before: date | None = Query(None, description="Cursor: only show events before this date (preferred over offset)"),
     limit: int = Query(50, ge=1, le=250),
     offset: int = Query(0, ge=0),
 ):
@@ -125,6 +127,21 @@ def recent_activity(
             member_bill_condition = f"AND (b.sponsor_id IN ({placeholders}) OR b.bill_id IN (SELECT bill_id FROM bill_cosponsors WHERE bioguide_id IN ({placeholders})))"
             member_bill_params = list(member_ids) + list(member_ids)
 
+        # Keyset cursor filter
+        cursor_vote_condition = ""
+        cursor_vote_params: list[object] = []
+        cursor_intro_condition = ""
+        cursor_intro_params: list[object] = []
+        cursor_enacted_condition = ""
+        cursor_enacted_params: list[object] = []
+        if before:
+            cursor_vote_condition = "AND v.vote_date < ?"
+            cursor_vote_params = [before]
+            cursor_intro_condition = "AND b.introduced_date < ?"
+            cursor_intro_params = [before]
+            cursor_enacted_condition = "AND b.latest_action_date < ?"
+            cursor_enacted_params = [before]
+
         # Votes feed
         votes_query = f"""
             SELECT 'vote' as event_type, v.vote_date as date,
@@ -135,6 +152,7 @@ def recent_activity(
             LEFT JOIN bills b ON v.bill_id = b.bill_id
             {subject_join}
             WHERE v.vote_date >= current_date - interval '{days} days'
+            {cursor_vote_condition}
             {subject_condition}
             {policy_condition}
             {chamber_condition.replace("chamber", "v.chamber")}
@@ -150,6 +168,7 @@ def recent_activity(
             FROM bills b
             {subject_join}
             WHERE b.introduced_date >= current_date - interval '{days} days'
+            {cursor_intro_condition}
             {subject_condition}
             {policy_condition}
             {chamber_condition.replace("chamber", "b.origin_chamber") if chamber else ""}
@@ -166,6 +185,7 @@ def recent_activity(
             {subject_join}
             WHERE b.status = 'enacted'
               AND b.latest_action_date >= current_date - interval '{days} days'
+            {cursor_enacted_condition}
             {subject_condition}
             {policy_condition}
             {member_bill_condition}
@@ -173,6 +193,7 @@ def recent_activity(
 
         # Combine all params in order
         votes_params: list[object] = []
+        votes_params.extend(cursor_vote_params)
         if subject:
             votes_params.extend(subject_params)
         if policy_area:
@@ -182,6 +203,7 @@ def recent_activity(
         votes_params.extend(member_vote_params)
 
         intro_params: list[object] = []
+        intro_params.extend(cursor_intro_params)
         if subject:
             intro_params.extend(subject_params)
         if policy_area:
@@ -191,11 +213,16 @@ def recent_activity(
         intro_params.extend(member_bill_params)
 
         enacted_params: list[object] = []
+        enacted_params.extend(cursor_enacted_params)
         if subject:
             enacted_params.extend(subject_params)
         if policy_area:
             enacted_params.extend(policy_params)
         enacted_params.extend(member_bill_params)
+
+        # When using keyset cursor, omit OFFSET
+        use_offset = not before
+        offset_clause = "OFFSET ?" if use_offset else ""
 
         combined_query = f"""
             SELECT * FROM (
@@ -206,10 +233,14 @@ def recent_activity(
                 {enacted_query}
             )
             ORDER BY date DESC NULLS LAST
-            LIMIT ? OFFSET ?
+            LIMIT ? {offset_clause}
         """
 
-        all_params = votes_params + intro_params + enacted_params + [limit, offset]
+        pagination_params: list[object] = [limit]
+        if use_offset:
+            pagination_params.append(offset)
+
+        all_params = votes_params + intro_params + enacted_params + pagination_params
 
         rows = conn.execute(combined_query, all_params).fetchall()
 
@@ -235,7 +266,13 @@ def recent_activity(
             for r in rows
         ]
 
-        return ActivityFeed(items=items, total=total, offset=offset, limit=limit)
+        # Derive next_cursor from the last item's date
+        next_cursor = items[-1].date if items else None
+
+        return ActivityFeed(
+            items=items, total=total, offset=offset, limit=limit,
+            next_cursor=next_cursor,
+        )
 
 
 @router.get("/trending-subjects", response_model=list[dict])
