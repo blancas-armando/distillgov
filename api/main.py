@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import members, bills, votes, trades
+from api.routers import activity, members, bills, committees, votes, stats
 
 app = FastAPI(
     title="Distillgov API",
@@ -20,11 +20,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routers
+# Routers — activity first (recency-first mindset)
+app.include_router(activity.router, prefix="/api/activity", tags=["Activity"])
 app.include_router(members.router, prefix="/api/members", tags=["Members"])
 app.include_router(bills.router, prefix="/api/bills", tags=["Bills"])
+app.include_router(committees.router, prefix="/api/committees", tags=["Committees"])
 app.include_router(votes.router, prefix="/api/votes", tags=["Votes"])
-app.include_router(trades.router, prefix="/api/trades", tags=["Trades"])
+app.include_router(stats.router, prefix="/api/stats", tags=["Stats"])
 
 
 @app.get("/")

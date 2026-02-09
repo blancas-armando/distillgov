@@ -12,36 +12,9 @@ from capitolgains.utils.representative_scraper import HouseDisclosureScraper
 from capitolgains.utils.senator_scraper import SenateDisclosureScraper
 
 from config import DB_PATH
+from ingestion.constants import normalize_state
 
 console = Console()
-
-# State name to code mapping
-STATE_CODES = {
-    "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR",
-    "California": "CA", "Colorado": "CO", "Connecticut": "CT", "Delaware": "DE",
-    "Florida": "FL", "Georgia": "GA", "Hawaii": "HI", "Idaho": "ID",
-    "Illinois": "IL", "Indiana": "IN", "Iowa": "IA", "Kansas": "KS",
-    "Kentucky": "KY", "Louisiana": "LA", "Maine": "ME", "Maryland": "MD",
-    "Massachusetts": "MA", "Michigan": "MI", "Minnesota": "MN", "Mississippi": "MS",
-    "Missouri": "MO", "Montana": "MT", "Nebraska": "NE", "Nevada": "NV",
-    "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
-    "North Carolina": "NC", "North Dakota": "ND", "Ohio": "OH", "Oklahoma": "OK",
-    "Oregon": "OR", "Pennsylvania": "PA", "Rhode Island": "RI", "South Carolina": "SC",
-    "South Dakota": "SD", "Tennessee": "TN", "Texas": "TX", "Utah": "UT",
-    "Vermont": "VT", "Virginia": "VA", "Washington": "WA", "West Virginia": "WV",
-    "Wisconsin": "WI", "Wyoming": "WY", "District of Columbia": "DC",
-    "Puerto Rico": "PR", "Guam": "GU", "American Samoa": "AS",
-    "U.S. Virgin Islands": "VI", "Northern Mariana Islands": "MP",
-}
-
-
-def get_state_code(state: str) -> str | None:
-    """Convert state name to state code."""
-    if not state:
-        return None
-    if len(state) == 2 and state.upper() in STATE_CODES.values():
-        return state.upper()
-    return STATE_CODES.get(state)
 
 
 def generate_trade_id(bioguide_id: str, pdf_url: str) -> str:
@@ -71,7 +44,7 @@ def sync_house_trades(year: int, conn: duckdb.DuckDBPyConnection) -> int:
         ):
             checked += 1
             try:
-                state_code = get_state_code(state)
+                state_code = normalize_state(state)
                 if not state_code:
                     continue
 
@@ -137,7 +110,7 @@ def sync_senate_trades(year: int, conn: duckdb.DuckDBPyConnection) -> int:
         ):
             checked += 1
             try:
-                state_code = get_state_code(state)
+                state_code = normalize_state(state)
                 if not state_code:
                     continue
 

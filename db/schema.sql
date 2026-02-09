@@ -16,8 +16,12 @@ CREATE TABLE IF NOT EXISTS members (
     official_url    TEXT,
     phone           TEXT,
     office_address  TEXT,
+    contact_form    TEXT,              -- URL for online contact form
     leadership_role TEXT,
     start_date      DATE,
+    twitter         TEXT,
+    facebook        TEXT,
+    youtube         TEXT,
     updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -107,6 +111,14 @@ CREATE TABLE IF NOT EXISTS bill_actions (
     PRIMARY KEY (bill_id, sequence)
 );
 
+-- Zip code to congressional district mapping
+CREATE TABLE IF NOT EXISTS zip_districts (
+    zcta            TEXT NOT NULL,       -- 5-digit ZIP Code Tabulation Area
+    state           TEXT NOT NULL,       -- 2-letter state abbreviation
+    district        INTEGER NOT NULL,    -- Congressional district number (0 = at-large)
+    PRIMARY KEY (zcta, state, district)
+);
+
 -- Committees
 CREATE TABLE IF NOT EXISTS committees (
     committee_id    TEXT PRIMARY KEY,
@@ -115,6 +127,21 @@ CREATE TABLE IF NOT EXISTS committees (
     committee_type  TEXT,              -- 'standing', 'select', 'joint', 'subcommittee'
     parent_id       TEXT,
     url             TEXT
+);
+
+-- Committee membership
+CREATE TABLE IF NOT EXISTS committee_members (
+    committee_id    TEXT NOT NULL,
+    bioguide_id     TEXT NOT NULL,
+    role            TEXT,              -- 'Chair', 'Ranking Member', 'Member'
+    PRIMARY KEY (committee_id, bioguide_id)
+);
+
+-- Bill legislative subjects (many-to-many)
+CREATE TABLE IF NOT EXISTS bill_subjects (
+    bill_id         TEXT NOT NULL,
+    subject         TEXT NOT NULL,
+    PRIMARY KEY (bill_id, subject)
 );
 
 -- Indexes for common queries
@@ -133,7 +160,17 @@ CREATE INDEX IF NOT EXISTS idx_votes_chamber ON votes(chamber);
 CREATE INDEX IF NOT EXISTS idx_votes_bill ON votes(bill_id);
 
 CREATE INDEX IF NOT EXISTS idx_member_votes_member ON member_votes(bioguide_id);
+CREATE INDEX IF NOT EXISTS idx_member_votes_vote ON member_votes(vote_id);
+
+CREATE INDEX IF NOT EXISTS idx_cosponsors_member ON bill_cosponsors(bioguide_id);
+CREATE INDEX IF NOT EXISTS idx_actions_bill ON bill_actions(bill_id);
 
 CREATE INDEX IF NOT EXISTS idx_trades_member ON trades(bioguide_id);
 CREATE INDEX IF NOT EXISTS idx_trades_ticker ON trades(ticker);
 CREATE INDEX IF NOT EXISTS idx_trades_date ON trades(transaction_date);
+
+CREATE INDEX IF NOT EXISTS idx_zip_districts_zcta ON zip_districts(zcta);
+
+CREATE INDEX IF NOT EXISTS idx_committee_members_member ON committee_members(bioguide_id);
+CREATE INDEX IF NOT EXISTS idx_bill_subjects_subject ON bill_subjects(subject);
+CREATE INDEX IF NOT EXISTS idx_bill_subjects_bill ON bill_subjects(bill_id);

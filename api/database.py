@@ -22,3 +22,8 @@ def get_db() -> Generator[duckdb.DuckDBPyConnection, None, None]:
         yield conn
     finally:
         conn.close()
+
+
+def escape_like(value: str) -> str:
+    """Escape special ILIKE characters (%, _, \\) in user input."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")

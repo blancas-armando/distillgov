@@ -8,6 +8,7 @@ from rich.progress import track
 
 from config import DB_PATH
 from ingestion.client import CongressClient
+from ingestion.constants import normalize_state
 
 console = Console()
 
@@ -85,11 +86,11 @@ def sync_members(congress: int = 118):
                 last_name,
                 name,
                 party,
-                member.get("state"),
+                normalize_state(member.get("state")),
                 district,
                 chamber,
                 True,
-                member.get("depiction", {}).get("imageUrl"),
+                f"https://unitedstates.github.io/images/congress/450x550/{bioguide_id}.jpg",
                 member.get("officialWebsiteUrl"),
             ],
         )

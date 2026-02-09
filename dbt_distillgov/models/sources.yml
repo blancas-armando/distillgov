@@ -12,9 +12,15 @@ sources:
         description: Roll call votes
       - name: member_votes
         description: Individual member voting positions
-      - name: trades
-        description: Stock trading disclosures
       - name: bill_cosponsors
         description: Bill cosponsor relationships
       - name: bill_actions
         description: Bill action timeline events
+      - name: zip_districts
+        description: Zip code to congressional district mappings
+      - name: committees
+        description: Congressional committees and subcommittees
+      - name: committee_members
+        description: Committee membership assignments
+      - name: bill_subjects
+        description: Legislative subject tags per bill

@@ -30,63 +30,112 @@ def init():
 
 @app.command()
 def sync(
-    target: str = typer.Argument(..., help="What to sync: members, bills, cosponsors, actions, votes, member-votes, trades, all"),
+    target: str = typer.Argument(
+        ...,
+        help="What to sync: members, bills, cosponsors, actions, subjects, summaries, "
+        "votes, member-votes, senate-votes, senate-member-votes, committees, "
+        "enrich-members, load-zips, all",
+    ),
     congress: int = typer.Option(118, help="Congress number (e.g., 118 for 118th Congress)"),
-    year: int = typer.Option(2024, help="Year for trades sync"),
+    from_congress: int | None = typer.Option(None, help="Sync a range: from this congress up to --congress"),
+    session: int = typer.Option(1, help="Session number (1 or 2)"),
 ):
     """Sync data from sources into DuckDB.
 
     Targets:
-      members       - Members of Congress
-      bills         - Bills and resolutions
-      cosponsors    - Bill cosponsors (requires bills)
-      actions       - Bill action timelines (requires bills)
-      votes         - Roll call votes (House only)
-      member-votes  - Individual member voting positions (requires votes)
-      trades        - Stock trading disclosures
-      all           - Sync members, bills, votes (not cosponsors/actions/member-votes due to API limits)
+      members              - Members of Congress
+      bills                - Bills and resolutions
+      cosponsors           - Bill cosponsors + sponsor IDs (requires bills)
+      actions              - Bill action timelines (requires bills)
+      subjects             - Legislative subject tags (requires bills)
+      summaries            - CRS bill summaries + text URLs (requires bills)
+      votes                - House roll call votes
+      member-votes         - House member voting positions (requires votes)
+      senate-votes         - Senate roll call votes from senate.gov
+      senate-member-votes  - Senate member voting positions (requires senate-votes)
+      committees           - Committee membership from Congress.gov
+      enrich-members       - Phone, address, social media from YAML
+      load-zips            - Load zip-to-district mappings
+      all                  - Full pipeline (all of the above)
+
+    Use --from-congress to backfill multiple congresses:
+      sync bills --from-congress 117 --congress 118
     """
+    congresses = list(range(from_congress, congress + 1)) if from_congress else [congress]
+
     if target == "all":
-        targets = ["members", "bills", "votes"]
+        targets = [
+            "members", "enrich-members", "bills", "cosponsors", "actions",
+            "subjects", "summaries", "votes", "member-votes",
+            "senate-votes", "senate-member-votes", "committees", "load-zips",
+        ]
     else:
         targets = [target]
 
-    for t in targets:
-        console.print(f"\n[bold blue]Syncing {t}...[/bold blue]")
+    for c in congresses:
+        if len(congresses) > 1:
+            console.print(f"\n[bold magenta]── Congress {c} ──[/bold magenta]")
 
-        if t == "members":
-            from ingestion.sync_members import sync_members
-            sync_members(congress=congress)
+        for t in targets:
+            console.print(f"\n[bold blue]Syncing {t} (congress={c})...[/bold blue]")
 
-        elif t == "bills":
-            from ingestion.sync_bills import sync_bills
-            sync_bills(congress=congress)
+            if t == "members":
+                from ingestion.sync_members import sync_members
+                sync_members(congress=c)
 
-        elif t == "cosponsors":
-            from ingestion.sync_bills import sync_cosponsors
-            sync_cosponsors(congress=congress)
+            elif t == "bills":
+                from ingestion.sync_bills import sync_bills
+                sync_bills(congress=c)
 
-        elif t == "actions":
-            from ingestion.sync_bills import sync_actions
-            sync_actions(congress=congress)
+            elif t == "cosponsors":
+                from ingestion.sync_bills import sync_cosponsors
+                sync_cosponsors(congress=c)
 
-        elif t == "votes":
-            from ingestion.sync_votes import sync_votes
-            sync_votes(congress=congress)
+            elif t == "actions":
+                from ingestion.sync_bills import sync_actions
+                sync_actions(congress=c)
 
-        elif t == "member-votes":
-            from ingestion.sync_votes import sync_member_votes
-            sync_member_votes(congress=congress)
+            elif t == "votes":
+                from ingestion.sync_votes import sync_votes
+                sync_votes(congress=c)
 
-        elif t == "trades":
-            from ingestion.sync_trades import sync_trades
-            sync_trades(year=year)
+            elif t == "member-votes":
+                from ingestion.sync_votes import sync_member_votes
+                sync_member_votes(congress=c)
 
-        else:
-            console.print(f"[red]Unknown target: {t}[/red]")
-            raise typer.Exit(1)
+            elif t == "senate-votes":
+                from ingestion.sync_votes import sync_senate_votes
+                sync_senate_votes(congress=c, session=session)
 
-        console.print(f"[green]Completed {t}[/green]")
+            elif t == "senate-member-votes":
+                from ingestion.sync_votes import sync_senate_member_votes
+                sync_senate_member_votes(congress=c, session=session)
+
+            elif t == "subjects":
+                from ingestion.sync_bills import sync_subjects
+                sync_subjects(congress=c)
+
+            elif t == "summaries":
+                from ingestion.sync_bills import sync_summaries
+                sync_summaries(congress=c)
+
+            elif t == "committees":
+                from ingestion.sync_committees import sync_committees
+                sync_committees(congress=c)
+
+            elif t == "enrich-members":
+                from ingestion.enrich_members import enrich_members
+                enrich_members()
+
+            elif t == "load-zips":
+                from ingestion.load_zip_districts import load_zip_districts
+                load_zip_districts()
+
+            else:
+                console.print(f"[red]Unknown target: {t}[/red]")
+                raise typer.Exit(1)
+
+            console.print(f"[green]Completed {t}[/green]")
 
 
 @app.command()
@@ -130,7 +179,11 @@ def stats():
     conn = duckdb.connect(str(DB_PATH), read_only=True)
 
     console.print("\n[bold]Base Tables[/bold]\n")
-    base_tables = ["members", "bills", "bill_cosponsors", "bill_actions", "votes", "member_votes", "trades", "committees"]
+    base_tables = [
+        "members", "bills", "bill_cosponsors", "bill_actions",
+        "bill_subjects", "votes", "member_votes",
+        "committees", "committee_members", "zip_districts",
+    ]
     for table in base_tables:
         try:
             count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]

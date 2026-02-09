@@ -2,6 +2,18 @@
     config(materialized='table')
 }}
 
+with cosponsorship as (
+    select
+        c.bill_id,
+        count(*) as total_cosponsors,
+        count(*) filter (where m.party = 'D') as dem_cosponsors,
+        count(*) filter (where m.party = 'R') as rep_cosponsors,
+        count(*) filter (where m.party not in ('D', 'R')) as ind_cosponsors
+    from {{ source('raw', 'bill_cosponsors') }} c
+    left join {{ ref('stg_members') }} m on c.bioguide_id = m.bioguide_id
+    group by c.bill_id
+)
+
 select
     -- Keys
     b.bill_id,
@@ -23,6 +35,13 @@ select
     m.full_name as sponsor_name,
     m.party as sponsor_party,
     m.state as sponsor_state,
+
+    -- Cosponsorship
+    coalesce(cs.total_cosponsors, 0) as total_cosponsors,
+    coalesce(cs.dem_cosponsors, 0) as dem_cosponsors,
+    coalesce(cs.rep_cosponsors, 0) as rep_cosponsors,
+    coalesce(cs.ind_cosponsors, 0) as ind_cosponsors,
+    cs.dem_cosponsors > 0 and cs.rep_cosponsors > 0 as is_bipartisan,
 
     -- Time dimensions
     date_trunc('week', b.introduced_date) as introduced_week,
@@ -57,3 +76,4 @@ select
 
 from {{ ref('stg_bills') }} b
 left join {{ ref('stg_members') }} m on b.sponsor_id = m.bioguide_id
+left join cosponsorship cs on b.bill_id = cs.bill_id

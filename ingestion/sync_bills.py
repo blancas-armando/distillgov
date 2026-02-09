@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import duckdb
 from rich.console import Console
 from rich.progress import track
@@ -244,6 +246,18 @@ def sync_cosponsors(congress: int = 118):
                         )
                         sponsors_updated += 1
 
+                # Extract short title from titles array
+                titles = bill_data.get("titles", [])
+                for t in titles:
+                    if t.get("titleType", "").startswith("Short Title"):
+                        short = t.get("title")
+                        if short:
+                            conn.execute(
+                                "UPDATE bills SET short_title = ? WHERE bill_id = ?",
+                                [short, bill_id]
+                            )
+                            break
+
                 # Get cosponsors
                 response = client.get_bill_cosponsors(congress, bill_type, bill_number)
                 cosponsors = response.get("cosponsors", [])
@@ -336,6 +350,130 @@ def sync_actions(congress: int = 118):
 
     conn.close()
     console.print(f"[green]Inserted {inserted} actions[/green]")
+
+
+def sync_subjects(congress: int = 118):
+    """Sync legislative subject tags for all bills in the database."""
+    console.print(f"Syncing bill subjects for Congress {congress}...")
+
+    conn = duckdb.connect(str(DB_PATH))
+    bills = conn.execute(
+        "SELECT bill_id, bill_type, bill_number FROM bills WHERE congress = ?",
+        [congress]
+    ).fetchall()
+    conn.close()
+
+    if not bills:
+        console.print("[yellow]No bills found. Run 'sync bills' first.[/yellow]")
+        return
+
+    console.print(f"Found {len(bills)} bills")
+
+    conn = duckdb.connect(str(DB_PATH))
+    inserted = 0
+
+    with CongressClient() as client:
+        for bill_id, bill_type, bill_number in track(bills, description="Fetching subjects..."):
+            try:
+                response = client.get_bill_subjects(congress, bill_type, bill_number)
+                subjects = response.get("subjects", {})
+
+                # Legislative subjects (many per bill)
+                for subj in subjects.get("legislativeSubjects", []):
+                    name = subj.get("name")
+                    if name:
+                        conn.execute(
+                            "INSERT OR REPLACE INTO bill_subjects (bill_id, subject) VALUES (?, ?)",
+                            [bill_id, name]
+                        )
+                        inserted += 1
+
+                # Policy area (update if missing from initial sync)
+                policy = subjects.get("policyArea", {})
+                if policy and policy.get("name"):
+                    conn.execute(
+                        "UPDATE bills SET policy_area = ? WHERE bill_id = ? AND policy_area IS NULL",
+                        [policy["name"], bill_id]
+                    )
+
+            except Exception as e:
+                console.print(f"[dim]  {bill_id}: {e}[/dim]")
+                continue
+
+    conn.close()
+    console.print(f"[green]Inserted {inserted} subject tags[/green]")
+
+
+def sync_summaries(congress: int = 118):
+    """Sync CRS summaries and text version URLs for all bills."""
+    console.print(f"Syncing bill summaries for Congress {congress}...")
+
+    conn = duckdb.connect(str(DB_PATH))
+    bills = conn.execute(
+        "SELECT bill_id, bill_type, bill_number FROM bills WHERE congress = ?",
+        [congress]
+    ).fetchall()
+    conn.close()
+
+    if not bills:
+        console.print("[yellow]No bills found. Run 'sync bills' first.[/yellow]")
+        return
+
+    console.print(f"Found {len(bills)} bills")
+
+    conn = duckdb.connect(str(DB_PATH))
+    summaries_updated = 0
+    text_updated = 0
+
+    with CongressClient() as client:
+        for bill_id, bill_type, bill_number in track(bills, description="Fetching summaries..."):
+            try:
+                # Fetch summary
+                sum_response = client.get_bill_summaries(congress, bill_type, bill_number)
+                summaries = sum_response.get("summaries", [])
+                if summaries:
+                    # Use the most recent summary (last in list)
+                    latest = summaries[-1]
+                    text = latest.get("text", "")
+                    if text:
+                        clean = re.sub(r"<[^>]+>", "", text).strip()
+                        conn.execute(
+                            "UPDATE bills SET summary = ? WHERE bill_id = ?",
+                            [clean, bill_id]
+                        )
+                        summaries_updated += 1
+
+                # Fetch text versions
+                text_response = client.get_bill_text(congress, bill_type, bill_number)
+                versions = text_response.get("textVersions", [])
+                if versions:
+                    # Use the most recent text version
+                    latest_text = versions[-1]
+                    formats = latest_text.get("formats", [])
+                    # Prefer PDF, fall back to HTML
+                    url = None
+                    for fmt in formats:
+                        if fmt.get("type") == "Formatted Text (PDF)":
+                            url = fmt.get("url")
+                            break
+                    if not url:
+                        for fmt in formats:
+                            if fmt.get("url"):
+                                url = fmt.get("url")
+                                break
+                    if url:
+                        conn.execute(
+                            "UPDATE bills SET full_text_url = ? WHERE bill_id = ?",
+                            [url, bill_id]
+                        )
+                        text_updated += 1
+
+            except Exception as e:
+                console.print(f"[dim]  {bill_id}: {e}[/dim]")
+                continue
+
+    conn.close()
+    console.print(f"[green]Updated {summaries_updated} summaries, {text_updated} text URLs[/green]")
 
 
 def determine_status(action_text: str | None) -> str:

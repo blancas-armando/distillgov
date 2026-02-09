@@ -13,6 +13,14 @@ models:
       - name: congress
         tests:
           - not_null
+      - name: total_cosponsors
+        description: Total number of cosponsors
+      - name: dem_cosponsors
+        description: Number of Democratic cosponsors
+      - name: rep_cosponsors
+        description: Number of Republican cosponsors
+      - name: is_bipartisan
+        description: True if bill has both D and R cosponsors
       - name: is_enacted
         description: True if bill status is 'enacted'
       - name: is_stale
@@ -22,8 +30,8 @@ models:
 
   - name: fct_members
     description: >
-      Enriched members with sponsorship, voting, and trading statistics.
-      Replaces member_facts from facts.sql, now with real vote and trade data.
+      Enriched members with sponsorship, voting, and party loyalty statistics.
+      Includes both House and Senate voting data.
     columns:
       - name: bioguide_id
         tests:
@@ -37,8 +45,12 @@ models:
         description: Total roll call votes this member participated in
       - name: attendance_rate
         description: Percentage of votes where the member was present
-      - name: disclosure_count
-        description: Number of stock trade disclosure filings
+      - name: party_loyalty_pct
+        description: Percentage of votes where the member voted with their party majority
+      - name: activity_score
+        description: >
+          Composite 0-100 score for current members. Averages percentile ranks
+          across bills sponsored, votes cast, and attendance rate.
 
   - name: agg_congress_summary
     description: Congress-level bill aggregations

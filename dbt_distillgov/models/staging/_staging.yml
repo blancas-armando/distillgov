@@ -46,17 +46,6 @@ models:
         tests:
           - not_null
 
-  - name: stg_trades
-    description: Staging layer for stock trading disclosures
-    columns:
-      - name: trade_id
-        tests:
-          - unique
-          - not_null
-      - name: bioguide_id
-        tests:
-          - not_null
-
   - name: stg_bill_cosponsors
     description: Staging layer for bill cosponsor relationships
     columns:

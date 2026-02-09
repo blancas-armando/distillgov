@@ -1,0 +1,22 @@
+version: 2
+
+models:
+  - name: int_party_vote_majority
+    description: >
+      For each roll call vote and party (D/R), the majority position.
+      Used to compute party loyalty percentages. Normalizes House Yes/No
+      and Senate Yea/Nay to a common Yes/No standard.
+    columns:
+      - name: vote_id
+        tests:
+          - not_null
+      - name: party
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["D", "R"]
+      - name: majority_position
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["Yes", "No"]

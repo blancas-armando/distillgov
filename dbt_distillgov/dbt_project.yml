@@ -11,6 +11,8 @@ models:
   distillgov:
     staging:
       +materialized: view
+    intermediate:
+      +materialized: view
     marts:
       +materialized: view
       fct_bills:

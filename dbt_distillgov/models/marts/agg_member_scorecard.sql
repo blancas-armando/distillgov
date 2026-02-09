@@ -11,7 +11,8 @@ select
     votes_cast,
     votes_missed,
     attendance_rate,
-    disclosure_count
+    party_loyalty_pct,
+    activity_score
 from {{ ref('fct_members') }}
 where is_current = true
 order by bills_sponsored desc

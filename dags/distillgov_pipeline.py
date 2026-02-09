@@ -19,32 +19,30 @@ DBT_PROJECT_DIR = Path(__file__).parent.parent / "dbt_distillgov"
 DAG_DOC = """
 ### Distillgov Pipeline
 
-Ingests congressional data from Congress.gov and CapitolGains, then builds
+Ingests congressional data from Congress.gov and senate.gov, then builds
 dbt models on top of DuckDB.
 
 #### Data flow
 
 ```
-init_schema → [ingest_base] → [ingest_detail] → [ingest_trades] → [dbt]
+init_schema → load_zips → [ingest_base] → [ingest_detail] → [dbt]
 ```
 
 | Group | Tasks | Source |
 |-------|-------|--------|
-| **ingest_base** | members, bills, votes | Congress.gov API |
-| **ingest_detail** | cosponsors, actions, member_votes | Congress.gov API |
-| **ingest_trades** | trades | CapitolGains (House + Senate PTRs) |
+| **ingest_base** | members, bills, house_votes, senate_votes | Congress.gov API, senate.gov XML |
+| **ingest_detail** | cosponsors, actions, house_member_votes, senate_member_votes | Congress.gov API, senate.gov XML |
 | **dbt** | run, test | dbt-duckdb |
 
 #### Parameters
 
 - **congress** (int): Congress number, default 118
-- **year** (int): Year for trade disclosures, default 2024
+- **session** (int): Session number (1 or 2), default 1
 
 #### Notes
 
 - All tasks run **sequentially** — DuckDB only allows one writer at a time.
-- Trades task has a **60-minute timeout** (scraping is slow).
-- dbt models: 7 staging views → 2 fact tables → 9 aggregate views.
+- dbt models: staging views → intermediate views → fact tables → aggregate views.
 """
 
 default_args = {
@@ -69,6 +67,12 @@ def _init_schema(**context):
     conn.close()
 
 
+def _load_zips(**context):
+    from ingestion.load_zip_districts import load_zip_districts
+
+    load_zip_districts()
+
+
 def _sync_members(**context):
     from ingestion.sync_members import sync_members
 
@@ -85,6 +89,15 @@ def _sync_votes(**context):
     from ingestion.sync_votes import sync_votes
 
     sync_votes(congress=context["params"].get("congress", 118))
+
+
+def _sync_senate_votes(**context):
+    from ingestion.sync_votes import sync_senate_votes
+
+    sync_senate_votes(
+        congress=context["params"].get("congress", 118),
+        session=context["params"].get("session", 1),
+    )
 
 
 def _sync_cosponsors(**context):
@@ -105,10 +118,13 @@ def _sync_member_votes(**context):
     sync_member_votes(congress=context["params"].get("congress", 118))
 
 
-def _sync_trades(**context):
-    from ingestion.sync_trades import sync_trades
+def _sync_senate_member_votes(**context):
+    from ingestion.sync_votes import sync_senate_member_votes
 
-    sync_trades(year=context["params"].get("year", 2024))
+    sync_senate_member_votes(
+        congress=context["params"].get("congress", 118),
+        session=context["params"].get("session", 1),
+    )
 
 
 def _dbt_run(**context):
@@ -138,7 +154,7 @@ with DAG(
     schedule="0 6 * * *",
     start_date=datetime(2024, 1, 1),
     catchup=False,
-    params={"congress": 118, "year": 2024},
+    params={"congress": 118, "session": 1},
     tags=["distillgov"],
     doc_md=DAG_DOC,
 ) as dag:
@@ -149,7 +165,13 @@ with DAG(
         doc_md="Create tables if they don't exist (idempotent).",
     )
 
-    with TaskGroup("ingest_base", tooltip="Core tables from Congress.gov") as ingest_base:
+    load_zips = PythonOperator(
+        task_id="load_zips",
+        python_callable=_load_zips,
+        doc_md="Load zip-to-district mappings from CSV.",
+    )
+
+    with TaskGroup("ingest_base", tooltip="Core tables from Congress.gov + senate.gov") as ingest_base:
         ingest_members = PythonOperator(
             task_id="members",
             python_callable=_sync_members,
@@ -160,12 +182,17 @@ with DAG(
             python_callable=_sync_bills,
             doc_md="Fetch bills by type (HR, S, HJRES, etc.). Limited to 500 per type.",
         )
-        ingest_votes = PythonOperator(
-            task_id="votes",
+        ingest_house_votes = PythonOperator(
+            task_id="house_votes",
             python_callable=_sync_votes,
             doc_md="Fetch House roll call votes.",
         )
-        ingest_members >> ingest_bills >> ingest_votes
+        ingest_senate_votes = PythonOperator(
+            task_id="senate_votes",
+            python_callable=_sync_senate_votes,
+            doc_md="Fetch Senate roll call votes from senate.gov XML.",
+        )
+        ingest_members >> ingest_bills >> ingest_house_votes >> ingest_senate_votes
 
     with TaskGroup("ingest_detail", tooltip="Detail tables (require base data)") as ingest_detail:
         ingest_cosponsors = PythonOperator(
@@ -178,26 +205,23 @@ with DAG(
             python_callable=_sync_actions,
             doc_md="Fetch bill action timelines.",
         )
-        ingest_member_votes = PythonOperator(
-            task_id="member_votes",
+        ingest_house_member_votes = PythonOperator(
+            task_id="house_member_votes",
             python_callable=_sync_member_votes,
-            doc_md="Fetch individual member voting positions per roll call.",
+            doc_md="Fetch individual House member voting positions per roll call.",
         )
-        ingest_cosponsors >> ingest_actions >> ingest_member_votes
-
-    with TaskGroup("ingest_trades", tooltip="Stock trade disclosures") as ingest_trades_group:
-        ingest_trades = PythonOperator(
-            task_id="trades",
-            python_callable=_sync_trades,
-            execution_timeout=timedelta(minutes=60),
-            doc_md="Scrape House + Senate PTR filings via CapitolGains. 60-min timeout.",
+        ingest_senate_member_votes = PythonOperator(
+            task_id="senate_member_votes",
+            python_callable=_sync_senate_member_votes,
+            doc_md="Fetch individual Senate member voting positions from senate.gov XML.",
         )
+        ingest_cosponsors >> ingest_actions >> ingest_house_member_votes >> ingest_senate_member_votes
 
     with TaskGroup("dbt", tooltip="Build and test dbt models") as dbt_group:
         dbt_run = PythonOperator(
             task_id="run",
             python_callable=_dbt_run,
-            doc_md="Run all dbt models: 7 staging views → 2 fact tables → 9 aggregates.",
+            doc_md="Run all dbt models: staging → intermediate → fact tables → aggregates.",
         )
         dbt_test = PythonOperator(
             task_id="test",
@@ -207,4 +231,4 @@ with DAG(
         dbt_run >> dbt_test
 
     # Sequential chain — DuckDB single-writer constraint
-    init_schema >> ingest_base >> ingest_detail >> ingest_trades_group >> dbt_group
+    init_schema >> load_zips >> ingest_base >> ingest_detail >> dbt_group

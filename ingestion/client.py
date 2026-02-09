@@ -83,6 +83,39 @@ class CongressClient:
         """Get cosponsors for a bill."""
         return self._get(f"bill/{congress}/{bill_type}/{bill_number}/cosponsors")
 
+    def get_bill_subjects(
+        self, congress: int, bill_type: str, bill_number: int
+    ) -> dict[str, Any]:
+        """Get legislative subjects for a bill."""
+        return self._get(f"bill/{congress}/{bill_type}/{bill_number}/subjects")
+
+    def get_bill_summaries(
+        self, congress: int, bill_type: str, bill_number: int
+    ) -> dict[str, Any]:
+        """Get CRS summaries for a bill."""
+        return self._get(f"bill/{congress}/{bill_type}/{bill_number}/summaries")
+
+    def get_bill_text(
+        self, congress: int, bill_type: str, bill_number: int
+    ) -> dict[str, Any]:
+        """Get text versions for a bill."""
+        return self._get(f"bill/{congress}/{bill_type}/{bill_number}/text")
+
+    def get_committees(
+        self, congress: int, chamber: str | None = None, limit: int = 250, offset: int = 0
+    ) -> dict[str, Any]:
+        """Get committees for a congress."""
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        if chamber:
+            return self._get(f"committee/{congress}/{chamber}", params)
+        return self._get(f"committee/{congress}", params)
+
+    def get_committee(
+        self, congress: int, chamber: str, committee_code: str
+    ) -> dict[str, Any]:
+        """Get a single committee with details."""
+        return self._get(f"committee/{congress}/{chamber}/{committee_code}")
+
     def get_votes(
         self,
         congress: int,
